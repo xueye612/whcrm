@@ -57,7 +57,7 @@
               :value="String(item.customer_id)">
               <div class="customer-option-row">
                 <span class="customer-option-short">{{ item.customer_display_name }}</span>
-                <span class="customer-option-full" :title="item.customer_name">{{ item.customer_name }}</span>
+                <span :title="item.customer_name" class="customer-option-full">{{ item.customer_name }}</span>
               </div>
             </el-option>
           </el-select>
@@ -80,7 +80,7 @@
               :value="String(item.contract_id)">
               <div class="customer-option-row">
                 <span class="customer-option-short">{{ item.contract_display_name }}</span>
-                <span class="customer-option-full" :title="item.contract_full_name">{{ item.contract_full_name }}</span>
+                <span :title="item.contract_full_name" class="customer-option-full">{{ item.contract_full_name }}</span>
               </div>
             </el-option>
           </el-select>
@@ -152,7 +152,7 @@
       </el-table-column>
       <el-table-column label="台账描述" min-width="332" show-overflow-tooltip>
         <template slot-scope="scope">
-          <div class="desc-preview-wrap" :title="descriptionCellTitle(scope.row)">
+          <div :title="descriptionCellTitle(scope.row)" class="desc-preview-wrap">
             <div class="desc-preview">
               <span class="desc-badge">描述</span>{{ descriptionPreview(scope.row.description) || '—' }}
             </div>
@@ -178,7 +178,7 @@
       </el-table-column>
       <el-table-column label="完成时间" width="110" show-overflow-tooltip>
         <template slot-scope="scope">
-          {{ formatListTime(scope.row.finish_time) }}
+          {{ formatListTime(scope.row.status === '已完成' ? scope.row.finish_time : '') }}
         </template>
       </el-table-column>
       <el-table-column label="操作" width="136" fixed="right">
@@ -333,7 +333,7 @@
             </el-col>
             <el-col :xs="24" :sm="12">
               <el-form-item label="处理状态">
-                <el-select v-model="form.status" placeholder="请选择">
+                <el-select v-model="form.status" placeholder="请选择" @change="handleFormStatusChange">
                   <el-option v-for="item in statusOptions" :key="item" :label="item" :value="item" />
                 </el-select>
               </el-form-item>
@@ -375,7 +375,7 @@
                   @value-change="handleHandlerChange" />
               </el-form-item>
             </el-col>
-            <el-col :xs="24" :sm="12">
+            <el-col v-if="isFormCompleted" :xs="24" :sm="12">
               <el-form-item label="完成时间">
                 <el-date-picker
                   v-model="form.finish_time"
@@ -388,9 +388,9 @@
                   clearable />
               </el-form-item>
             </el-col>
-            <el-col :xs="24" :sm="24">
-              <el-form-item label="备注" class="form-item-full">
-                <el-input v-model.trim="form.remark" :rows="2" type="textarea" placeholder="补充说明" />
+            <el-col v-if="isFormCompleted" :xs="24" :sm="24">
+              <el-form-item label="回复记录" class="form-item-full">
+                <el-input v-model.trim="form.reply_content" :rows="3" type="textarea" placeholder="填写问题原因和处理结果" />
               </el-form-item>
             </el-col>
           </el-row>
@@ -466,7 +466,7 @@
               <div class="kv-label">反馈时间</div>
               <div class="kv-value">{{ (detail.feedback_time || detail.register_time) ? (detail.feedback_time || detail.register_time).slice(0, 16) : '—' }}</div>
             </div>
-            <div class="kv-item half-width">
+            <div v-if="detail.status === '已完成'" class="kv-item half-width">
               <div class="kv-label">完成时间</div>
               <div class="kv-value">
                 {{ displayFinishTime }}
@@ -489,9 +489,9 @@
             <div v-if="detail.description" class="text-value rich-text rich-html" v-html="detail.description" />
             <div v-else class="text-value">—</div>
           </div>
-          <div v-if="detail.remark" class="text-block">
-            <div class="text-label">备注</div>
-            <div class="text-value">{{ detail.remark || '—' }}</div>
+          <div v-if="detailCompletedReply" class="text-block">
+            <div class="text-label">回复记录</div>
+            <div class="text-value">{{ detailCompletedReply }}</div>
           </div>
         </section>
 
@@ -565,6 +565,7 @@ import Tinymce from '@/components/Tinymce'
 import { workIndexWorkListAPI } from '@/api/pm/task'
 import { workWorkStatisticAPI } from '@/api/pm/statistics'
 import { downloadExcelWithResData } from '@/utils'
+import { isCompletedLedgerStatus, normalizeCompletionFields } from '@/utils/ledgerCompletion'
 
 export default {
   name: 'CustomerLedger',
@@ -678,6 +679,15 @@ export default {
       if (this.detail.finish_time) return this.detail.finish_time.slice(0, 19)
       if (this.detail.status === '已完成' && this.detail.update_time) return this.detail.update_time.slice(0, 19)
       return '—'
+    },
+    isFormCompleted() {
+      return isCompletedLedgerStatus(this.form && this.form.status)
+    },
+    detailCompletedReply() {
+      if (!isCompletedLedgerStatus(this.detail && this.detail.status)) return ''
+      if (this.detail && this.detail.completed_reply) return this.descriptionPreview(this.detail.completed_reply)
+      const record = this.recordList.find(item => item && item.new_status === '已完成' && item.content)
+      return record ? this.descriptionPreview(record.content) : ''
     },
     isCompleted() {
       return this.detail.status === '已完成'
@@ -798,6 +808,17 @@ export default {
     },
     isTaskCategory(category) {
       return ['系统BUG', '新增需求', '新需求'].includes(category)
+    },
+    getNowTime() {
+      if (this.$moment) {
+        return this.$moment().format('YYYY-MM-DD HH:mm:ss')
+      }
+      const date = new Date()
+      const pad = num => (num < 10 ? `0${num}` : `${num}`)
+      return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
+    },
+    handleFormStatusChange() {
+      this.form = normalizeCompletionFields(this.form, () => this.getNowTime())
     },
     canGenerateTask() {
       return this.detail && this.isTaskCategory(this.detail.category) && !this.detail.task_id
@@ -1248,7 +1269,7 @@ export default {
       this.recordOriginStatus = ''
       this.formOriginStatus = ''
       this.formOriginTaskId = 0
-      const now = this.$moment().format('YYYY-MM-DD HH:mm:ss')
+      const now = this.getNowTime()
       this.formTitle = '新建台账'
       const draft = this.loadDraft()
       const baseForm = {
@@ -1268,9 +1289,9 @@ export default {
         class_id: '',
         handler_user_id: this.getCurrentUserSelection(),
         register_user_id: this.getCurrentUserSelection(),
-        remark: ''
+        reply_content: ''
       }
-      this.form = draft ? { ...baseForm, ...draft } : baseForm
+      this.form = normalizeCompletionFields(draft ? { ...baseForm, ...draft } : baseForm, now)
       if (draft) {
         this.form.customer_id = []
         this.form.business_id = []
@@ -1313,12 +1334,12 @@ export default {
         task_id: row.task_id || 0,
         handler_user_id: row.handler_user_id ? [{ id: row.handler_user_id, realname: row.handler_user_name || '' }] : [],
         register_user_id: row.register_user_id ? [{ id: row.register_user_id, realname: row.register_user_name || '' }] : [],
-        remark: row.remark
+        reply_content: row.completed_reply || ''
       }
       this.fetchClassOptions(form.work_id)
       this.quickSearchType = 'contract'
       this.quickKeyword = ''
-      this.form = form
+      this.form = normalizeCompletionFields(form, () => this.getNowTime())
       this.loadFeedbackContacts()
       this.formVisible = true
 
@@ -1497,7 +1518,7 @@ export default {
       }
     },
     hasDraftContent() {
-      const fields = ['title', 'description', 'feedback_user', 'remark']
+      const fields = ['title', 'description', 'feedback_user', 'reply_content']
       if (fields.some(key => this.form && String(this.form[key] || '').trim())) return true
       if (Array.isArray(this.form.contract_id) && this.form.contract_id.length) return true
       return false
@@ -1724,6 +1745,10 @@ export default {
       payload.handler_user_id = handlerValue ? (handlerValue.id || handlerValue.user_id) : ''
       const registerValue = Array.isArray(this.form.register_user_id) ? this.form.register_user_id[0] : null
       payload.register_user_id = registerValue ? (registerValue.id || registerValue.user_id) : ''
+      const normalized = normalizeCompletionFields(payload, () => this.getNowTime())
+      payload.finish_time = normalized.finish_time
+      payload.reply_content = normalized.reply_content
+      delete payload.remark
       payload.sync_task_status = 1
       return payload
     }
@@ -2528,5 +2553,3 @@ export default {
   }
 }
 </style>
-
-

@@ -25,7 +25,7 @@
       <el-table-column prop="title" label="反馈问题" min-width="200" show-overflow-tooltip />
       <el-table-column label="问题描述" min-width="280" show-overflow-tooltip>
         <template slot-scope="scope">
-          {{ scope.row.description ? scope.row.description.replace(/<[^>]+>/g, '').slice(0, 80) : '—' }}
+          {{ scope.row.description ? plainText(scope.row.description).slice(0, 80) : '—' }}
         </template>
       </el-table-column>
       <el-table-column prop="category" label="问题分类" width="120" />
@@ -34,7 +34,9 @@
       <el-table-column label="反馈时间" width="170" show-overflow-tooltip>
         <template slot-scope="scope">{{ formatDateTime(scope.row.feedback_time || scope.row.register_time) || '—' }}</template>
       </el-table-column>
-      <el-table-column prop="finish_time" label="完成时间" width="170" show-overflow-tooltip />
+      <el-table-column label="完成时间" width="170" show-overflow-tooltip>
+        <template slot-scope="scope">{{ scope.row.status === '已完成' ? (scope.row.finish_time || '—') : '—' }}</template>
+      </el-table-column>
       <el-table-column label="操作" width="200" fixed="right">
         <template slot-scope="scope">
           <el-button type="text" @click.stop="openDetail(scope.row)">详情</el-button>
@@ -142,7 +144,7 @@
             </el-col>
             <el-col :xs="24" :sm="12">
               <el-form-item label="处理状态">
-                <el-select v-model="form.status" placeholder="请选择">
+                <el-select v-model="form.status" placeholder="请选择" @change="handleFormStatusChange">
                   <el-option v-for="item in statusOptions" :key="item" :label="item" :value="item" />
                 </el-select>
               </el-form-item>
@@ -184,7 +186,7 @@
                   @value-change="handleHandlerChange" />
               </el-form-item>
             </el-col>
-            <el-col :xs="24" :sm="12">
+            <el-col v-if="isFormCompleted" :xs="24" :sm="12">
               <el-form-item label="完成时间">
                 <el-date-picker
                   v-model="form.finish_time"
@@ -197,9 +199,9 @@
                   clearable />
               </el-form-item>
             </el-col>
-            <el-col :xs="24" :sm="24">
-              <el-form-item label="备注" class="form-item-full">
-                <el-input v-model.trim="form.remark" :rows="2" type="textarea" placeholder="补充说明" />
+            <el-col v-if="isFormCompleted" :xs="24" :sm="24">
+              <el-form-item label="回复记录" class="form-item-full">
+                <el-input v-model.trim="form.reply_content" :rows="3" type="textarea" placeholder="填写问题原因和处理结果" />
               </el-form-item>
             </el-col>
           </el-row>
@@ -253,7 +255,7 @@
               <div class="kv-label">反馈时间</div>
               <div class="kv-value">{{ formatDateTime(ledgerDetail.feedback_time || ledgerDetail.register_time) || '—' }}</div>
             </div>
-            <div class="kv-item">
+            <div v-if="ledgerDetail.status === '已完成'" class="kv-item">
               <div class="kv-label">完成时间</div>
               <div class="kv-value">
                 {{ formatDateTime(ledgerDetail.finish_time) || '—' }}
@@ -286,9 +288,9 @@
             </div>
             <div v-else class="text-value">—</div>
           </div>
-          <div v-if="ledgerDetail.remark" class="text-block">
-            <div class="text-label">备注</div>
-            <div class="text-value">{{ ledgerDetail.remark || '—' }}</div>
+          <div v-if="detailCompletedReply" class="text-block">
+            <div class="text-label">回复记录</div>
+            <div class="text-value">{{ detailCompletedReply }}</div>
           </div>
         </section>
 
@@ -347,6 +349,7 @@ import {
   ledgerRecordAddAPI
 } from '@/api/ledger/ledger'
 import { ledgerCategoryListAPI } from '@/api/admin/other'
+import { isCompletedLedgerStatus, normalizeCompletionFields } from '@/utils/ledgerCompletion'
 
 export default {
   name: 'RelativeLedger',
@@ -461,6 +464,15 @@ export default {
     },
     finishBadge() {
       return this.getFinishBadge()
+    },
+    isFormCompleted() {
+      return isCompletedLedgerStatus(this.form && this.form.status)
+    },
+    detailCompletedReply() {
+      if (!isCompletedLedgerStatus(this.ledgerDetail && this.ledgerDetail.status)) return ''
+      if (this.ledgerDetail && this.ledgerDetail.completed_reply) return this.plainText(this.ledgerDetail.completed_reply)
+      const record = this.recordList.find(item => item && item.new_status === '已完成' && item.content)
+      return record ? this.plainText(record.content) : ''
     },
     isRecordLocked() {
       return this.recordOriginStatus === '已完成'
@@ -628,8 +640,9 @@ export default {
         class_id: '',
         register_user_id: this.getCurrentUserSelection(),
         handler_user_id: this.getCurrentUserSelection(),
-        remark: ''
+        reply_content: ''
       }
+      this.form = normalizeCompletionFields(this.form, now)
       this.fetchClassOptions(this.form.work_id)
       this.loadFeedbackContactsByCustomerId(this.getCurrentFormCustomerId(), true)
       this.formVisible = true
@@ -663,8 +676,9 @@ export default {
         class_id: row.class_id || '',
         register_user_id: row.register_user_id ? [{ id: row.register_user_id, realname: row.register_user_name || '' }] : this.getCurrentUserSelection(),
         handler_user_id: row.handler_user_id ? [{ id: row.handler_user_id, realname: row.handler_user_name || '' }] : this.getCurrentUserSelection(),
-        remark: row.remark
+        reply_content: row.completed_reply || ''
       }
+      this.form = normalizeCompletionFields(this.form, () => this.getNowTime())
       this.fetchClassOptions(this.form.work_id)
       this.loadFeedbackContactsByCustomerId(this.getCurrentFormCustomerId(), !this.form.feedback_user)
       this.formVisible = true
@@ -770,6 +784,21 @@ export default {
       const pad = num => (num < 10 ? `0${num}` : `${num}`)
       return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
     },
+    handleFormStatusChange() {
+      this.form = normalizeCompletionFields(this.form, () => this.getNowTime())
+    },
+    plainText(value) {
+      return String(value || '')
+        .replace(/<img\b[^>]*>/gi, ' [图片] ')
+        .replace(/<(br|\/p|\/div|\/li)\b[^>]*>/gi, ' ')
+        .replace(/<[^>]+>/g, '')
+        .replace(/&nbsp;/gi, ' ')
+        .replace(/&amp;/gi, '&')
+        .replace(/&lt;/gi, '<')
+        .replace(/&gt;/gi, '>')
+        .replace(/\s+/g, ' ')
+        .trim()
+    },
     formatDateTime(value) {
       if (!value) return ''
       if (typeof value === 'string') {
@@ -801,6 +830,10 @@ export default {
         payload.handler_user_id = handlerValue ? handlerValue.id : ''
         const registerValue = Array.isArray(this.form.register_user_id) ? this.form.register_user_id[0] : null
         payload.register_user_id = registerValue ? registerValue.id : ''
+        const normalized = normalizeCompletionFields(payload, () => this.getNowTime())
+        payload.finish_time = normalized.finish_time
+        payload.reply_content = normalized.reply_content
+        delete payload.remark
         if (!payload.id) {
           await this.warnExpiredContractOnCreate(payload)
         }

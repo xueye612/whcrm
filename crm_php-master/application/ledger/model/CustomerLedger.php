@@ -73,7 +73,7 @@ class CustomerLedger extends Common
             ->join('__ADMIN_USER__ handler_user', 'ledger.handler_user_id = handler_user.id', 'LEFT')
             ->join('__CRM_BUSINESS__ business', 'ledger.business_id = business.business_id', 'LEFT')
             ->join('__CRM_CONTRACT__ contract', 'ledger.contract_id = contract.contract_id', 'LEFT')
-            ->field("ledger.*,customer.name as customer_name,customer.crm_qpmlfv as customer_short_name,register_user.realname as register_user_name,handler_user.realname as handler_user_name,business.name as business_name,contract.num as contract_num,contract.name as contract_name,contract.crm_defqwa as contract_short_name,contract.end_time as contract_end_time,(SELECT record.content FROM {$recordTable} record WHERE record.ledger_id = ledger.ledger_id AND record.new_status = '已完成' ORDER BY record.create_time DESC,record.record_id DESC LIMIT 1) as completed_reply,(SELECT COUNT(1) FROM {$recordTable} record WHERE record.ledger_id = ledger.ledger_id) as record_count")
+            ->field("ledger.*,customer.name as customer_name,customer.crm_qpmlfv as customer_short_name,register_user.realname as register_user_name,handler_user.realname as handler_user_name,business.name as business_name,contract.num as contract_num,contract.name as contract_name,contract.crm_defqwa as contract_short_name,contract.end_time as contract_end_time,(SELECT record.content FROM {$recordTable} record WHERE record.ledger_id = ledger.ledger_id AND record.new_status = '已完成' AND record.content <> '创建台账' AND record.content NOT LIKE '状态变更：%' AND record.content NOT LIKE '同步任务：%' ORDER BY record.create_time DESC,record.record_id DESC LIMIT 1) as completed_reply,(SELECT COUNT(1) FROM {$recordTable} record WHERE record.ledger_id = ledger.ledger_id) as record_count")
             ->where($where);
         if ($keywordWhere) {
             $query->where($keywordWhere);
@@ -120,6 +120,7 @@ class CustomerLedger extends Common
         if (empty($ledgerId) || empty($userId)) {
             return null;
         }
+        $recordTable = Db::getConfig('prefix') . 'customer_ledger_record';
         $query = Db::name($this->name)
             ->alias('ledger')
             ->join('__CRM_CUSTOMER__ customer', 'ledger.customer_id = customer.customer_id', 'LEFT')
@@ -127,7 +128,7 @@ class CustomerLedger extends Common
             ->join('__ADMIN_USER__ handler_user', 'ledger.handler_user_id = handler_user.id', 'LEFT')
             ->join('__CRM_BUSINESS__ business', 'ledger.business_id = business.business_id', 'LEFT')
             ->join('__CRM_CONTRACT__ contract', 'ledger.contract_id = contract.contract_id', 'LEFT')
-            ->field('ledger.*,customer.name as customer_name,customer.crm_qpmlfv as customer_short_name,register_user.realname as register_user_name,handler_user.realname as handler_user_name,business.name as business_name,contract.num as contract_num,contract.name as contract_name,contract.crm_defqwa as contract_short_name,contract.end_time as contract_end_time')
+            ->field("ledger.*,customer.name as customer_name,customer.crm_qpmlfv as customer_short_name,register_user.realname as register_user_name,handler_user.realname as handler_user_name,business.name as business_name,contract.num as contract_num,contract.name as contract_name,contract.crm_defqwa as contract_short_name,contract.end_time as contract_end_time,(SELECT record.content FROM {$recordTable} record WHERE record.ledger_id = ledger.ledger_id AND record.new_status = '已完成' AND record.content <> '创建台账' AND record.content NOT LIKE '状态变更：%' AND record.content NOT LIKE '同步任务：%' ORDER BY record.create_time DESC,record.record_id DESC LIMIT 1) as completed_reply")
             ->where('ledger.' . $this->pk, $ledgerId);
         $data = $this->applyDataScope($query, $userId)->find();
         if (!$data) {

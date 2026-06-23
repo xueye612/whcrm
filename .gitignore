@@ -2,3 +2,6 @@
 
 # Local database credentials. Use crm_php-master/config/database_template.php as the committed template.
 crm_php-master/config/database.php
+
+crm_web-master/node_modules/
+crm_web-master/dist/

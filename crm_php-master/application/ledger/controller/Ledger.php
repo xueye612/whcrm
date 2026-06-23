@@ -69,6 +69,8 @@ class Ledger extends ApiCommon
         $model = model('CustomerLedger');
         $param = $this->param;
         $userInfo = $this->userInfo;
+        $replyContent = $this->normalizeReplyContent($param['reply_content'] ?? '');
+        unset($param['reply_content']);
 
         $relationError = $this->normalizeRelation($param);
         if ($relationError) {
@@ -118,6 +120,9 @@ class Ledger extends ApiCommon
         if (empty($param['finish_time'])) {
             $param['finish_time'] = 0;
         }
+        if (($param['status'] ?? '') === '已完成' && empty($param['finish_time'])) {
+            $param['finish_time'] = time();
+        }
         if (empty($param['business_id'])) {
             $param['business_id'] = 0;
         }
@@ -135,6 +140,7 @@ class Ledger extends ApiCommon
         if ($res) {
             $ledgerId = $model->ledger_id;
             $model->addProgressRecord($ledgerId, $param['customer_id'], '创建台账', '', $param['status'], $userInfo['id']);
+            $this->addCompletionReplyRecord($model, $ledgerId, $param['customer_id'], $replyContent, '', $param['status'], $userInfo['id']);
             $this->addLedgerActivity($ledgerId, $param['customer_id'], '创建台账', $userInfo['id'], 1);
             $taskId = $this->maybeCreateProjectTask($ledgerId, $param, $userInfo);
             if ($taskId) {
@@ -151,6 +157,8 @@ class Ledger extends ApiCommon
         $model = model('CustomerLedger');
         $param = $this->param;
         $userInfo = $this->userInfo;
+        $replyContent = $this->normalizeReplyContent($param['reply_content'] ?? '');
+        unset($param['reply_content']);
 
         if (empty($param['id'])) {
             return resultArray(['error' => '参数错误']);
@@ -219,6 +227,9 @@ class Ledger extends ApiCommon
                 $param['finish_time'] = 0;
             }
         }
+        if (($param['status'] ?? $oldData['status'] ?? '') === '已完成' && empty($param['finish_time']) && empty($oldData['finish_time'])) {
+            $param['finish_time'] = time();
+        }
         if (array_key_exists('feedback_channel', $param) && empty($param['feedback_channel'])) {
             $param['feedback_channel'] = '微信';
         }
@@ -240,6 +251,15 @@ class Ledger extends ApiCommon
                 $model->addProgressRecord($ledgerId, $oldData['customer_id'], $content, $oldData['status'], $param['status'], $userInfo['id']);
                 $this->addLedgerActivity($ledgerId, $oldData['customer_id'], $content, $userInfo['id'], 1);
             }
+            $this->addCompletionReplyRecord(
+                $model,
+                $ledgerId,
+                $oldData['customer_id'],
+                $replyContent,
+                $oldData['status'] ?? '',
+                $mergedData['status'] ?? '',
+                $userInfo['id']
+            );
             $taskId = $this->maybeCreateProjectTask($ledgerId, $mergedData, $userInfo);
             if ($taskId) {
                 $model->addProgressRecord($ledgerId, $oldData['customer_id'], '已生成项目任务', '', $param['status'] ?? $oldData['status'], $userInfo['id']);
@@ -338,6 +358,35 @@ class Ledger extends ApiCommon
             'update_time' => time(),
             'create_time' => time()
         ]);
+    }
+
+    protected function normalizeReplyContent($content)
+    {
+        return trim((string)$content);
+    }
+
+    protected function addCompletionReplyRecord($model, $ledgerId, $customerId, $content, $oldStatus, $newStatus, $userId)
+    {
+        $content = $this->normalizeReplyContent($content);
+        if ($content === '' || $newStatus !== '已完成') {
+            return false;
+        }
+
+        $lastContent = db('customer_ledger_record')
+            ->where('ledger_id', $ledgerId)
+            ->where('new_status', '已完成')
+            ->where('content', '<>', '创建台账')
+            ->where('content', 'not like', '状态变更：%')
+            ->where('content', 'not like', '同步任务：%')
+            ->order('create_time desc,record_id desc')
+            ->value('content');
+        if ($lastContent === $content) {
+            return false;
+        }
+
+        $model->addProgressRecord($ledgerId, $customerId, $content, $oldStatus, '已完成', $userId);
+        $this->addLedgerActivity($ledgerId, $customerId, $content, $userId, 1);
+        return true;
     }
 
     protected function normalizeRelation(&$param)
