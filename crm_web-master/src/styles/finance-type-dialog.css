@@ -1,0 +1,118 @@
+/* 账目分类对话框全局样式 */
+.finance-type-dialog .el-dialog {
+  border-radius: 16px !important;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.08) !important;
+  overflow: hidden !important;
+}
+
+.finance-type-dialog .el-dialog__header {
+  background: #f5f7fa !important;
+  padding: 20px 24px !important;
+  margin: 0 !important;
+  border-bottom: 1px solid #e8eaed !important;
+
+  .el-dialog__title {
+    color: #303133 !important;
+    font-weight: 600 !important;
+    font-size: 15px !important;
+  }
+
+  .el-dialog__close {
+    color: #909399 !important;
+    font-size: 20px !important;
+    transition: all 0.3s ease !important;
+
+    &:hover {
+      color: #606266 !important;
+      transform: rotate(90deg) !important;
+    }
+  }
+}
+
+.finance-type-dialog .el-dialog__body {
+  padding: 32px 32px 24px !important;
+  background: #ffffff !important;
+}
+
+.finance-type-dialog .el-dialog__footer {
+  background: #fafbfc !important;
+  padding: 16px 24px !important;
+  border-top: 1px solid #e8eaed !important;
+  text-align: right !important;
+}
+
+/* 表单样式 */
+.finance-type-dialog .el-form {
+  margin-bottom: 24px !important;
+}
+
+.finance-type-dialog .el-form-item {
+  margin-bottom: 20px !important;
+}
+
+.finance-type-dialog .el-form-item__label {
+  padding-right: 16px !important;
+  text-align: right !important;
+  font-weight: 500 !important;
+  color: #606266 !important;
+}
+
+.finance-type-dialog .el-form-item__content {
+  line-height: 40px !important;
+}
+
+.finance-type-dialog .el-form-item__content .el-select,
+.finance-type-dialog .el-form-item__content .el-input,
+.finance-type-dialog .el-form-item__content .el-input-number {
+  width: 100% !important;
+  transition: all 0.25s ease !important;
+
+  &:hover {
+    border-color: #409EFF !important;
+    box-shadow: 0 1px 4px rgba(64, 158, 255, 0.06) !important;
+  }
+
+  &:is-focus {
+    border-color: #409EFF !important;
+    box-shadow: 0 0 0 2px rgba(64, 158, 255, 0.08) !important;
+  }
+}
+
+/* 按钮样式 */
+.finance-type-dialog .el-dialog__footer .el-button {
+  font-weight: 500 !important;
+  border-radius: 8px !important;
+  padding: 10px 24px !important;
+  transition: all 0.25s ease !important;
+
+  &:hover {
+    transform: translateY(-1px) !important;
+    box-shadow: 0 2px 8px rgba(64, 158, 255, 0.12) !important;
+  }
+
+  &:active {
+    transform: translateY(0) !important;
+  }
+}
+
+.finance-type-dialog .el-dialog__footer .el-button--primary {
+  background: #409EFF !important;
+  border: none !important;
+
+  &:hover {
+    background: #5bb956 !important;
+    transform: translateY(-1px) !important;
+  }
+}
+
+.finance-type-dialog .el-dialog__footer .el-button--default {
+  background: #ffffff !important;
+  border: 1px solid #e8eaed !important;
+  color: #606266 !important;
+
+  &:hover {
+    background: #f5f7fa !important;
+    border-color: #409EFF !important;
+    color: #409EFF !important;
+  }
+}

@@ -1,0 +1,4 @@
+.DS_Store
+
+# Local database credentials. Use crm_php-master/config/database_template.php as the committed template.
+crm_php-master/config/database.php

@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1"/>
+  <titleCRM安装向导</title>
+  <link rel="shortcut icon" href="__STATIC__/icon/favicon.ico">
+  <link rel="stylesheet" href="__STATIC__/style/base.css">
+  <link rel="stylesheet" href="__STATIC__/style/index.css">
+  <script src="__STATIC__/js/jquery-3.3.1.min.js"></script>
+</head>
+<body>
+  <div class="header-wrapper">
+	{include file="public/header"}   
+  </div>
+  <div class="top">
+	<div class="agreement-title">CRM系统开源版使用协议</div>
+  </div>
+
+  <div class="container">
+	<div class="agreement">
+		<p style="text-align:center;font-size:18px;">CRM开源版使用协议</p>
+		<br>
+			
+	</div>
+	<div class="agree-btn">我同意</div>
+  </div>
+  <div class="footer-wrapper">
+	 {include file="public/footer"}
+  </div>
+</body>
+<script>
+  $('.agree-btn').click(function () {
+	window.location = 'step1.html'
+  });
+</script>
+</html>
