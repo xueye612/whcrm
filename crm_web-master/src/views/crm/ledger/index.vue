@@ -26,6 +26,13 @@
           <div class="card-num">{{ stats.processing }}</div>
         </div>
       </div>
+      <div class="dashboard-card release-pending" @click="quickFilter('待发布')">
+        <div class="card-icon"><i class="el-icon-upload2"/></div>
+        <div class="card-info">
+          <div class="card-label">待发布</div>
+          <div class="card-num">{{ stats.releasePending }}</div>
+        </div>
+      </div>
       <div class="dashboard-card completed" @click="quickFilter('已完成')">
         <div class="card-icon"><i class="el-icon-success"/></div>
         <div class="card-info">
@@ -165,7 +172,7 @@
       <el-table-column prop="category" label="问题分类" width="86" />
       <el-table-column prop="status" label="处理状态" width="78">
         <template slot-scope="scope">
-          <el-tag :type="statusTagType(scope.row.status)" size="mini">{{ scope.row.status }}</el-tag>
+          <el-tag :type="statusTagType(scope.row.status)" :class="statusTagClass(scope.row.status)" size="mini">{{ scope.row.status }}</el-tag>
         </template>
       </el-table-column>
       <el-table-column prop="feedback_user" label="反馈人" width="132" />
@@ -204,12 +211,25 @@
       />
     </div>
 
-    <el-dialog :title="formTitle" :visible.sync="formVisible" :before-close="handleFormBeforeClose" width="980px" append-to-body class="ledger-form-dialog">
-      <el-form ref="ledgerForm" :model="form" :rules="rules" label-width="110px" class="ledger-form">
+    <el-dialog :title="formTitle" :visible.sync="formVisible" :before-close="handleFormBeforeClose" width="1120px" append-to-body class="ledger-form-dialog">
+      <el-form ref="ledgerForm" :model="form" :rules="rules" label-width="92px" class="ledger-form" @validate="handleFormValidate">
         <div class="ledger-form-section section-related">
           <div class="section-title">关联对象</div>
-          <el-form-item label="关联对象" prop="contract_id" class="form-item-full">
-            <div class="quick-select-row">
+          <el-form-item prop="contract_id" class="form-item-full relation-form-item">
+            <div v-if="selectedContract" class="relation-summary-card">
+              <div class="relation-summary-main">
+                <div class="relation-summary-row">
+                  <span class="relation-summary-label">合同：</span>
+                  <span class="relation-summary-value">{{ selectedContractLabel }}</span>
+                </div>
+                <div v-if="selectedContractCustomer" class="relation-summary-row">
+                  <span class="relation-summary-label">客户：</span>
+                  <span class="relation-summary-value">{{ selectedContractCustomer }}</span>
+                </div>
+              </div>
+              <el-button type="text" @click="reselectContract">重新选择</el-button>
+            </div>
+            <div v-if="!selectedContract || quickVisible" class="quick-select-row">
               <el-select v-model="quickSearchType" placeholder="仅支持合同" class="quick-select-type">
                 <el-option label="合同" value="contract" />
               </el-select>
@@ -225,6 +245,10 @@
             <div v-if="quickVisible" class="quick-result">
               <div class="quick-result__header">
                 <span>选择列表</span>
+                <el-radio-group v-model="quickContractScope" size="mini" @change="refreshQuickResults">
+                  <el-radio-button label="recent">近两年优先</el-radio-button>
+                  <el-radio-button label="all">全部</el-radio-button>
+                </el-radio-group>
                 <el-button type="text" @click="quickVisible=false">收起</el-button>
               </div>
               <div v-loading="quickLoading" class="quick-result__body">
@@ -239,41 +263,13 @@
                 </div>
               </div>
             </div>
-            <div v-if="selectedContract" class="quick-selected">
-              <el-tag type="success" closable @close="clearSelectedContract">
-                {{ selectedContractLabel }}
-              </el-tag>
-              <span v-if="selectedContractCustomer" class="quick-selected__meta">客户：{{ selectedContractCustomer }}</span>
-            </div>
-          </el-form-item>
-        </div>
-
-        <div class="ledger-form-section section-core">
-          <div class="section-title">核心内容</div>
-          <el-form-item label="反馈问题" prop="title" class="form-item-strong">
-            <el-input ref="titleInput" v-model.trim="form.title" placeholder="请输入简洁的问题标题" class="ledger-title-input" />
-          </el-form-item>
-          <el-form-item label="问题描述" class="form-item-full">
-            <tinymce
-              v-if="formVisible"
-              v-model="form.description"
-              :height="320"
-              :toolbar="['undo redo | bold bullist numlist | image']"
-              :plugins="['lists', 'image', 'paste', 'autoresize']"
-              :init="{
-                placeholder: '补充问题现象、复现步骤、影响范围等',
-                menubar: false,
-                content_style: 'img{max-width:100%;height:auto;}'
-              }"
-              class="ledger-form-rich"
-            />
           </el-form-item>
         </div>
 
         <div class="ledger-form-section section-track">
           <div class="section-title">归类与跟踪</div>
-          <el-row :gutter="16">
-            <el-col :xs="24" :sm="12">
+          <div class="track-grid">
+            <div class="track-grid-row">
               <el-form-item label="反馈人">
                 <el-select
                   v-model="form.feedback_user"
@@ -290,61 +286,23 @@
                     :value="getFeedbackContactLabel(item)" />
                 </el-select>
               </el-form-item>
-            </el-col>
-            <el-col :xs="24" :sm="12">
               <el-form-item label="反馈渠道">
                 <el-select v-model="form.feedback_channel" placeholder="请选择">
                   <el-option v-for="item in channelOptions" :key="item" :label="item" :value="item" />
                 </el-select>
               </el-form-item>
-            </el-col>
-            <el-col :xs="24" :sm="12">
               <el-form-item label="问题分类">
                 <el-select v-model="form.category" placeholder="请选择" @change="handleCategoryChange">
                   <el-option v-for="item in categoryOptions" :key="item" :label="item" :value="item" />
                 </el-select>
               </el-form-item>
-            </el-col>
-            <el-col v-if="isTaskCategory(form.category)" :xs="24" :sm="12">
-              <el-form-item label="项目">
-                <el-select
-                  v-model="form.work_id"
-                  :loading="workLoading"
-                  clearable
-                  filterable
-                  placeholder="选择项目"
-                  @change="handleWorkChange">
-                  <el-option v-for="item in workOptions" :key="item.work_id" :label="item.name" :value="item.work_id" />
-                </el-select>
-              </el-form-item>
-            </el-col>
-            <el-col v-if="isTaskCategory(form.category)" :xs="24" :sm="12">
-              <el-form-item label="任务列表">
-                <el-select
-                  v-model="form.class_id"
-                  :disabled="!form.work_id"
-                  :loading="classLoading"
-                  clearable
-                  filterable
-                  placeholder="选择任务列表">
-                  <el-option v-for="item in classOptions" :key="item.class_id" :label="item.name" :value="item.class_id" />
-                </el-select>
-              </el-form-item>
-            </el-col>
-            <el-col :xs="24" :sm="12">
-              <el-form-item label="处理状态">
+              <el-form-item label="问题状态">
                 <el-select v-model="form.status" placeholder="请选择" @change="handleFormStatusChange">
                   <el-option v-for="item in statusOptions" :key="item" :label="item" :value="item" />
                 </el-select>
               </el-form-item>
-            </el-col>
-          </el-row>
-        </div>
-
-        <div class="ledger-form-section section-archive">
-          <div class="section-title">归档信息</div>
-          <el-row :gutter="16">
-            <el-col :xs="24" :sm="12">
+            </div>
+            <div class="track-grid-row track-grid-row--3">
               <el-form-item label="反馈时间">
                 <el-date-picker
                   v-model="form.feedback_time"
@@ -356,8 +314,6 @@
                   class="ledger-date-input"
                   clearable />
               </el-form-item>
-            </el-col>
-            <el-col :xs="24" :sm="12">
               <el-form-item label="登记人" prop="register_user_id">
                 <xh-user-cell
                   :value="form.register_user_id"
@@ -365,8 +321,6 @@
                   placeholder="选择登记人"
                   @value-change="handleRegisterChange" />
               </el-form-item>
-            </el-col>
-            <el-col :xs="24" :sm="12">
               <el-form-item label="处理人" prop="handler_user_id">
                 <xh-user-cell
                   :value="form.handler_user_id"
@@ -374,9 +328,65 @@
                   placeholder="选择处理人"
                   @value-change="handleHandlerChange" />
               </el-form-item>
-            </el-col>
-            <el-col v-if="isFormCompleted" :xs="24" :sm="12">
-              <el-form-item label="完成时间">
+            </div>
+            <div v-if="isTaskCategory(form.category)" class="track-grid-row track-grid-row--task">
+              <el-form-item label="关联项目">
+                <el-select
+                  v-model="form.work_id"
+                  :loading="workLoading"
+                  clearable
+                  filterable
+                  placeholder="选择项目"
+                  @change="handleWorkChange">
+                  <el-option v-for="item in workOptions" :key="item.work_id" :label="item.name" :value="item.work_id" />
+                </el-select>
+              </el-form-item>
+              <el-form-item label="任务列表">
+                <el-select
+                  v-model="form.class_id"
+                  :disabled="!form.work_id"
+                  :loading="classLoading"
+                  clearable
+                  filterable
+                  placeholder="选择任务列表">
+                  <el-option v-for="item in classOptions" :key="item.class_id" :label="item.name" :value="item.class_id" />
+                </el-select>
+              </el-form-item>
+            </div>
+          </div>
+        </div>
+
+        <div class="ledger-form-section section-core">
+          <div class="section-title">问题内容</div>
+          <el-form-item prop="title" class="form-item-strong" :show-message="false">
+            <span slot="label" class="title-label-row">
+              <span class="title-label-text">问题标题</span>
+              <span v-if="titleErrorMsg" class="title-label-error">{{ titleErrorMsg }}</span>
+            </span>
+            <el-input ref="titleInput" v-model.trim="form.title" placeholder="请输入简洁的问题标题" class="ledger-title-input" />
+          </el-form-item>
+          <el-form-item label="问题描述" class="form-item-full">
+            <tinymce
+              v-if="formVisible"
+              v-model="form.description"
+              :height="170"
+              :toolbar="['undo redo | bold bullist numlist | image']"
+              :plugins="['lists', 'image', 'paste', 'autoresize']"
+              :init="{
+                placeholder: '补充问题现象、复现步骤、影响范围等',
+                menubar: false,
+                content_style: 'img{max-width:100%;height:auto;}'
+              }"
+              class="ledger-form-rich"
+            />
+          </el-form-item>
+        </div>
+
+        <div v-if="isFormCompleted" class="ledger-form-section section-completion">
+          <div class="section-title section-title-success">完成信息</div>
+          <el-row :gutter="16">
+            <el-col :xs="24" :sm="7">
+              <el-form-item label="完成时间" class="completion-inline-field">
                 <el-date-picker
                   v-model="form.finish_time"
                   :append-to-body="true"
@@ -388,12 +398,23 @@
                   clearable />
               </el-form-item>
             </el-col>
-            <el-col v-if="isFormCompleted" :xs="24" :sm="24">
-              <el-form-item label="回复记录" class="form-item-full">
-                <el-input v-model.trim="form.reply_content" :rows="3" type="textarea" placeholder="填写问题原因和处理结果" />
+            <el-col :xs="24" :sm="17">
+              <el-form-item label="原因及处理结果" class="form-item-full completion-reply-item">
+                <el-input v-model.trim="form.reply_content" :rows="3" type="textarea" placeholder="输入处理过程、原因、结果" />
               </el-form-item>
             </el-col>
           </el-row>
+        </div>
+
+        <div v-if="isFormClosed" class="ledger-form-section section-closed">
+          <div class="section-title section-title-danger">关闭信息</div>
+          <el-form-item label="关闭原因" prop="close_reason" class="form-item-full close-reason-item">
+            <el-input
+              v-model.trim="form.close_reason"
+              :rows="3"
+              type="textarea"
+              placeholder="说明关闭原因，如重复反馈、无效问题、客户放弃等" />
+          </el-form-item>
         </div>
       </el-form>
       <div slot="footer" class="ledger-form-footer">
@@ -405,7 +426,7 @@
       </div>
     </el-dialog>
 
-    <el-dialog :visible.sync="detailVisible" title="台账详情" width="1000px" append-to-body class="ledger-detail-dialog">
+    <el-dialog :visible.sync="detailVisible" title="台账详情" width="1080px" append-to-body class="ledger-detail-dialog">
       <div class="ledger-detail">
         <section class="detail-section">
           <div class="section-title header-flex">
@@ -424,27 +445,24 @@
               </div>
               <div class="header-item">
                 <el-tag
-                  :type="detail.status === '已完成' ? 'success' : detail.status === '处理中' ? 'warning' : detail.status === '已关闭' ? 'danger' : 'info'"
+                  :type="statusTagType(detail.status)"
+                  :class="statusTagClass(detail.status)"
                   size="small">
                   {{ detail.status || '—' }}
                 </el-tag>
               </div>
             </div>
           </div>
-          <div class="kv-grid">
-            <div class="kv-item full-width">
-              <div class="kv-label">反馈问题</div>
-              <div class="kv-value highlight-text">{{ detail.title || '—' }}</div>
+          <div class="detail-summary-card">
+            <div class="detail-title-label">反馈问题</div>
+            <div class="detail-title-value">{{ detail.title || '—' }}</div>
+            <div v-if="detail.business_name || detail.contract_name || detail.contract_num" class="detail-relation-line">
+              <el-tag v-if="detail.business_name" type="warning" size="mini" effect="plain">商机</el-tag>
+              <el-tag v-else-if="detail.contract_name || detail.contract_num" size="mini" effect="plain">合同</el-tag>
+              <span>{{ relationDetailName(detail) || '—' }}</span>
             </div>
-            <div v-if="detail.business_name || detail.contract_name || detail.contract_num" class="kv-item full-width">
-              <div class="kv-label">关联对象</div>
-              <div class="kv-value">
-                <el-tag v-if="detail.business_name" type="warning" size="mini" effect="plain" style="margin-right: 6px;">商机</el-tag>
-                <el-tag v-else-if="detail.contract_name || detail.contract_num" size="mini" effect="plain" style="margin-right: 6px;">合同</el-tag>
-                {{ relationDetailName(detail) || '—' }}
-              </div>
-            </div>
-
+          </div>
+          <div class="kv-grid detail-kv-grid">
             <div class="kv-item">
               <div class="kv-label">问题分类</div>
               <div class="kv-value">{{ detail.category || '—' }}</div>
@@ -454,6 +472,14 @@
               <div class="kv-value">{{ detail.feedback_channel || '微信' }}</div>
             </div>
             <div class="kv-item">
+              <div class="kv-label">反馈人</div>
+              <div class="kv-value">{{ detail.feedback_user || '—' }}</div>
+            </div>
+            <div class="kv-item">
+              <div class="kv-label">反馈时间</div>
+              <div class="kv-value">{{ (detail.feedback_time || detail.register_time) ? (detail.feedback_time || detail.register_time).slice(0, 16) : '—' }}</div>
+            </div>
+            <div class="kv-item">
               <div class="kv-label">登记人</div>
               <div class="kv-value">{{ detail.register_user_name || '—' }}</div>
             </div>
@@ -461,14 +487,11 @@
               <div class="kv-label">处理人</div>
               <div class="kv-value">{{ detail.handler_user_name || '—' }}</div>
             </div>
-
-            <div class="kv-item">
-              <div class="kv-label">反馈时间</div>
-              <div class="kv-value">{{ (detail.feedback_time || detail.register_time) ? (detail.feedback_time || detail.register_time).slice(0, 16) : '—' }}</div>
-            </div>
-            <div v-if="detail.status === '已完成'" class="kv-item half-width">
-              <div class="kv-label">完成时间</div>
-              <div class="kv-value">
+          </div>
+          <div v-if="detail.status === '已完成'" class="detail-completion-card">
+            <div class="detail-completion-time">
+              <span class="kv-label">完成时间</span>
+              <span class="kv-value">
                 {{ displayFinishTime }}
                 <el-tag
                   v-if="finishBadge.text"
@@ -477,8 +500,16 @@
                   class="time-badge">
                   {{ finishBadge.text }}
                 </el-tag>
-              </div>
+              </span>
             </div>
+            <div v-if="detailCompletedReply" class="detail-completion-reply">
+              <div class="kv-label">回复记录</div>
+              <div class="text-value">{{ detailCompletedReply }}</div>
+            </div>
+          </div>
+          <div v-if="detail.status === '已关闭' && detailClosedReason" class="detail-closed-card">
+            <div class="kv-label">关闭原因</div>
+            <div class="text-value">{{ detailClosedReason }}</div>
           </div>
         </section>
 
@@ -488,10 +519,6 @@
             <div class="text-label">问题描述</div>
             <div v-if="detail.description" class="text-value rich-text rich-html" v-html="detail.description" />
             <div v-else class="text-value">—</div>
-          </div>
-          <div v-if="detailCompletedReply" class="text-block">
-            <div class="text-label">回复记录</div>
-            <div class="text-value">{{ detailCompletedReply }}</div>
           </div>
         </section>
 
@@ -517,25 +544,25 @@
           </el-timeline>
         </section>
 
-        <section v-if="detail.status != '已完成'" class="detail-section record-actions-section">
+        <section v-if="detail.status !== '已完成' && detail.status !== '已关闭'" class="detail-section record-actions-section">
           <el-divider content-position="left">补充处理</el-divider>
           <el-input
             v-model.trim="recordForm.content"
             :rows="4"
             :disabled="isRecordLocked"
             type="textarea"
-            placeholder="填写处理结果"
+            :placeholder="recordInputPlaceholder"
             class="record-input" />
           <div class="record-actions">
             <el-select
               v-model="recordForm.new_status"
-              :disabled="detail.status === '已完成'"
+              :disabled="isRecordLocked"
               clearable
               placeholder="变更状态（可选）"
               class="record-select">
               <el-option v-for="item in statusOptions" :key="item" :label="item" :value="item" />
             </el-select>
-            <el-button :disabled="isRecordLocked" type="primary" @click="addRecord">{{ recordForm.new_status === '已完成' ? '完成' : (isRecordLocked ? '已完成' : '新增记录') }}</el-button>
+            <el-button :disabled="isRecordLocked" type="primary" @click="addRecord">{{ recordSubmitLabel }}</el-button>
           </div>
         </section>
       </div>
@@ -565,7 +592,7 @@ import Tinymce from '@/components/Tinymce'
 import { workIndexWorkListAPI } from '@/api/pm/task'
 import { workWorkStatisticAPI } from '@/api/pm/statistics'
 import { downloadExcelWithResData } from '@/utils'
-import { isCompletedLedgerStatus, normalizeCompletionFields } from '@/utils/ledgerCompletion'
+import { isCompletedLedgerStatus, isClosedLedgerStatus, normalizeCompletionFields } from '@/utils/ledgerCompletion'
 
 export default {
   name: 'CustomerLedger',
@@ -579,6 +606,7 @@ export default {
         total: 0,
         pending: 0,
         processing: 0,
+        releasePending: 0,
         completed: 0
       },
       loading: false,
@@ -597,7 +625,7 @@ export default {
         keyword: ''
       },
       filterHandlerUser: [],
-      statusOptions: ['待处理', '处理中', '待验证', '已完成', '已关闭'],
+      statusOptions: ['待处理', '处理中', '待验证', '待发布', '已完成', '已关闭'],
       categoryOptions: ['使用指导', '操作错误', '功能完善', '系统BUG', '新增需求', '三方问题', '其他问题'],
       channelOptions: ['微信', '电话', '现场', '转述', '其他'],
       workOptions: [],
@@ -611,6 +639,7 @@ export default {
       // Add common customer aliases here, e.g. { '1001': '华北A', '北京某科技有限公司': '北京某科' }
       customerAliasMap: {},
       formVisible: false,
+      titleErrorMsg: '',
       formTitle: '新建台账',
       formSubmitting: false,
       form: {},
@@ -618,6 +647,8 @@ export default {
       quickSearchType: 'contract',
       quickKeyword: '',
       quickResults: [],
+      quickRawResults: [],
+      quickContractScope: 'recent',
       quickLoading: false,
       quickVisible: false,
       exportLoading: false,
@@ -627,7 +658,8 @@ export default {
         contract_id: [{ validator: (rule, value, callback) => this.validateRelation(rule, value, callback), trigger: 'change' }],
         title: [{ required: true, message: '请填写反馈问题', trigger: 'blur' }],
         register_user_id: [{ validator: (rule, value, callback) => this.validateUserSelect(value, '请选择登记人', callback), trigger: 'change' }],
-        handler_user_id: [{ validator: (rule, value, callback) => this.validateUserSelect(value, '请选择处理人', callback), trigger: 'change' }]
+        handler_user_id: [{ validator: (rule, value, callback) => this.validateUserSelect(value, '请选择处理人', callback), trigger: 'change' }],
+        close_reason: [{ validator: (rule, value, callback) => this.validateCloseReason(value, callback), trigger: 'blur' }]
       },
       detailVisible: false,
       detail: {},
@@ -683,17 +715,35 @@ export default {
     isFormCompleted() {
       return isCompletedLedgerStatus(this.form && this.form.status)
     },
+    isFormClosed() {
+      return isClosedLedgerStatus(this.form && this.form.status)
+    },
     detailCompletedReply() {
       if (!isCompletedLedgerStatus(this.detail && this.detail.status)) return ''
       if (this.detail && this.detail.completed_reply) return this.descriptionPreview(this.detail.completed_reply)
       const record = this.recordList.find(item => item && item.new_status === '已完成' && item.content)
       return record ? this.descriptionPreview(record.content) : ''
     },
+    detailClosedReason() {
+      if (!isClosedLedgerStatus(this.detail && this.detail.status)) return ''
+      if (this.detail && this.detail.closed_reason) return this.descriptionPreview(this.detail.closed_reason)
+      const record = this.recordList.find(item => item && item.new_status === '已关闭' && item.content)
+      return record ? this.descriptionPreview(record.content) : ''
+    },
     isCompleted() {
       return this.detail.status === '已完成'
     },
     isRecordLocked() {
-      return this.detail.status === '已完成'
+      return this.detail.status === '已完成' || this.detail.status === '已关闭'
+    },
+    recordInputPlaceholder() {
+      return this.recordForm.new_status === '已关闭' ? '填写关闭原因' : '填写处理结果'
+    },
+    recordSubmitLabel() {
+      if (this.recordForm.new_status === '已完成') return '完成'
+      if (this.recordForm.new_status === '已关闭') return '关闭'
+      if (this.isRecordLocked) return '已完成'
+      return '新增记录'
     },
     quickSearchPlaceholder() {
       return '输入合同编号或名称'
@@ -739,10 +789,11 @@ export default {
       const p1 = ledgerIndexAPI({ page: 1, limit: 1 }).then(res => (res.data ? res.data.dataCount : 0))
       const p2 = ledgerIndexAPI({ page: 1, limit: 1, status: '待处理' }).then(res => (res.data ? res.data.dataCount : 0))
       const p3 = ledgerIndexAPI({ page: 1, limit: 1, status: '处理中' }).then(res => (res.data ? res.data.dataCount : 0))
-      const p4 = ledgerIndexAPI({ page: 1, limit: 1, status: '已完成' }).then(res => (res.data ? res.data.dataCount : 0))
+      const p4 = ledgerIndexAPI({ page: 1, limit: 1, status: '待发布' }).then(res => (res.data ? res.data.dataCount : 0))
+      const p5 = ledgerIndexAPI({ page: 1, limit: 1, status: '已完成' }).then(res => (res.data ? res.data.dataCount : 0))
 
-      Promise.all([p1, p2, p3, p4]).then(([total, pending, processing, completed]) => {
-        this.stats = { total, pending, processing, completed }
+      Promise.all([p1, p2, p3, p4, p5]).then(([total, pending, processing, releasePending, completed]) => {
+        this.stats = { total, pending, processing, releasePending, completed }
       })
     },
     quickFilter(status) {
@@ -819,6 +870,11 @@ export default {
     },
     handleFormStatusChange() {
       this.form = normalizeCompletionFields(this.form, () => this.getNowTime())
+      this.$nextTick(() => {
+        if (this.$refs.ledgerForm) {
+          this.$refs.ledgerForm.validateField('close_reason')
+        }
+      })
     },
     canGenerateTask() {
       return this.detail && this.isTaskCategory(this.detail.category) && !this.detail.task_id
@@ -976,10 +1032,14 @@ export default {
         '待处理': 'info',
         '处理中': 'warning',
         '待验证': 'warning',
+        '待发布': '',
         '已完成': 'success',
         '已关闭': 'danger'
       }
-      return map[status] || ''
+      return map[status] || 'info'
+    },
+    statusTagClass(status) {
+      return status === '待发布' ? 'status-tag-release' : ''
     },
     relationName(row) {
       if (!row) return '-'
@@ -1187,7 +1247,7 @@ export default {
     addRecord() {
       if (!this.detail || !this.detail.ledger_id) return
       if (!this.recordForm.content) {
-        this.$message.error('请填写处理说明')
+        this.$message.error(this.recordForm.new_status === '已关闭' ? '请填写关闭原因' : '请填写处理说明')
         return
       }
       const params = {
@@ -1219,6 +1279,7 @@ export default {
             this.detail.finish_time = this.detail.finish_time || this.detail.update_time || this.$moment().format('YYYY-MM-DD HH:mm:ss')
           }
           this.getList()
+          this.fetchStats()
         }
       })
     },
@@ -1263,6 +1324,11 @@ export default {
       this.page = 1
       this.handleSearch()
     },
+    handleFormValidate(prop, valid, message) {
+      if (prop === 'title') {
+        this.titleErrorMsg = valid ? '' : (message || '')
+      }
+    },
     openCreate() {
       this.recordList = []
       this.recordForm = { content: '', new_status: '' }
@@ -1289,7 +1355,8 @@ export default {
         class_id: '',
         handler_user_id: this.getCurrentUserSelection(),
         register_user_id: this.getCurrentUserSelection(),
-        reply_content: ''
+        reply_content: '',
+        close_reason: ''
       }
       this.form = normalizeCompletionFields(draft ? { ...baseForm, ...draft } : baseForm, now)
       if (draft) {
@@ -1303,6 +1370,7 @@ export default {
       this.quickKeyword = ''
       this.loadFeedbackContacts()
       this.formVisible = true
+      this.titleErrorMsg = ''
       this.$nextTick(() => {
         this.$refs.ledgerForm && this.$refs.ledgerForm.clearValidate()
         if (this.$refs.titleInput && this.$refs.titleInput.focus) {
@@ -1334,7 +1402,8 @@ export default {
         task_id: row.task_id || 0,
         handler_user_id: row.handler_user_id ? [{ id: row.handler_user_id, realname: row.handler_user_name || '' }] : [],
         register_user_id: row.register_user_id ? [{ id: row.register_user_id, realname: row.register_user_name || '' }] : [],
-        reply_content: row.completed_reply || ''
+        reply_content: row.completed_reply || '',
+        close_reason: row.closed_reason || ''
       }
       this.fetchClassOptions(form.work_id)
       this.quickSearchType = 'contract'
@@ -1342,6 +1411,7 @@ export default {
       this.form = normalizeCompletionFields(form, () => this.getNowTime())
       this.loadFeedbackContacts()
       this.formVisible = true
+      this.titleErrorMsg = ''
 
       this.$nextTick(() => {
         this.$refs.ledgerForm && this.$refs.ledgerForm.clearValidate()
@@ -1407,6 +1477,7 @@ export default {
           this.formOriginStatus = payload.status || ''
           this.formOriginTaskId = Number(payload.task_id || this.formOriginTaskId || 0)
           this.getList()
+          this.fetchStats()
         }).finally(() => {
           this.formSubmitting = false
         })
@@ -1529,6 +1600,7 @@ export default {
       }).then(() => {
         ledgerDeleteAPI({ id: row.ledger_id }).then(() => {
           this.getList()
+          this.fetchStats()
         })
       }).catch(() => {})
     },
@@ -1554,6 +1626,10 @@ export default {
     },
     clearSelectedContract() {
       this.handleContractChange({ value: [] })
+    },
+    reselectContract() {
+      this.clearSelectedContract()
+      this.quickVisible = true
     },
     handleHandlerChange(data) {
       this.form.handler_user_id = data.value || []
@@ -1616,7 +1692,7 @@ export default {
       if (!request) return
       const params = {
         page: 1,
-        limit: 200,
+        limit: 500,
         is_ledger_filter: 1,
         order_field: 'ledger_count',
         order_type: 'desc'
@@ -1626,13 +1702,18 @@ export default {
       this.quickVisible = true
       request(params).then(res => {
         const list = (res.data && res.data.list) ? res.data.list : []
-        this.quickResults = this.sortByLedgerCount(list).slice(0, 50)
+        this.quickRawResults = list
+        this.refreshQuickResults()
       }).catch(() => {
+        this.quickRawResults = []
         this.quickResults = []
         this.$message.error('获取列表失败，请重试')
       }).finally(() => {
         this.quickLoading = false
       })
+    },
+    refreshQuickResults() {
+      this.quickResults = this.sortQuickContractResults(this.quickRawResults).slice(0, 50)
     },
     applyQuickPick(item) {
       if (!item) return
@@ -1670,6 +1751,51 @@ export default {
         return c2 - c1
       })
     },
+    sortQuickContractResults(list) {
+      if (!Array.isArray(list)) return []
+      if (this.quickContractScope === 'all') return this.sortByLedgerCount(list)
+      const currentYear = new Date().getFullYear()
+      return list.slice().sort((a, b) => {
+        const aYear = this.getContractYear(a)
+        const bYear = this.getContractYear(b)
+        const aRecent = !aYear || aYear >= currentYear - 1
+        const bRecent = !bYear || bYear >= currentYear - 1
+        if (aRecent !== bRecent) return aRecent ? -1 : 1
+
+        const c1 = Number(a.ledger_count || 0)
+        const c2 = Number(b.ledger_count || 0)
+        if (c1 !== c2) return c2 - c1
+        if (aYear !== bYear) return (bYear || 0) - (aYear || 0)
+        return String(this.quickResultName(a)).localeCompare(String(this.quickResultName(b)), 'zh-Hans-CN')
+      })
+    },
+    getContractYear(item) {
+      const data = item || {}
+      const fields = [
+        data.start_time,
+        data.order_date,
+        data.sign_time,
+        data.create_time,
+        data.name,
+        data.num,
+        data.contract_num,
+        data.contract_short_name,
+        data.crm_defqwa
+      ]
+      const currentYear = new Date().getFullYear()
+      for (const field of fields) {
+        const text = String(field || '')
+        const fullYear = text.match(/20\d{2}/)
+        if (fullYear) return Number(fullYear[0])
+
+        const shortYear = text.match(/(?:^|[^\d])([2-3]\d)(?=[^\d]|$)/)
+        if (shortYear) {
+          const year = Number(`20${shortYear[1]}`)
+          if (year >= currentYear - 10 && year <= currentYear + 2) return year
+        }
+      }
+      return 0
+    },
     handleExport() {
       if (!this.canRead) return
       this.exportLoading = true
@@ -1701,6 +1827,13 @@ export default {
       const list = Array.isArray(value) ? value : []
       if (!list.length) {
         callback(new Error(message))
+        return
+      }
+      callback()
+    },
+    validateCloseReason(value, callback) {
+      if (isClosedLedgerStatus(this.form && this.form.status) && !String(value || '').trim()) {
+        callback(new Error('请填写关闭原因'))
         return
       }
       callback()
@@ -1748,6 +1881,7 @@ export default {
       const normalized = normalizeCompletionFields(payload, () => this.getNowTime())
       payload.finish_time = normalized.finish_time
       payload.reply_content = normalized.reply_content
+      payload.close_reason = normalized.close_reason
       delete payload.remark
       payload.sync_task_status = 1
       return payload
@@ -1818,7 +1952,20 @@ export default {
 .dashboard-card.total .card-icon { background: #ecf5ff; color: #409EFF; }
 .dashboard-card.pending .card-icon { background: #fef0f0; color: #F56C6C; }
 .dashboard-card.processing .card-icon { background: #fdf6ec; color: #E6A23C; }
+.dashboard-card.release-pending .card-icon { background: #f4ecf7; color: #9b59b6; }
 .dashboard-card.completed .card-icon { background: #f0f9eb; color: #67C23A; }
+
+.ledger-table ::v-deep .status-tag-release {
+  color: #8e44ad;
+  background-color: #f4ecf7;
+  border-color: #e8daef;
+}
+
+.ledger-detail-dialog ::v-deep .status-tag-release {
+  color: #8e44ad;
+  background-color: #f4ecf7;
+  border-color: #e8daef;
+}
 
 
 .filter-bar {
@@ -1988,23 +2135,25 @@ export default {
 .ledger-detail-dialog ::v-deep .el-dialog {
   border-radius: 8px;
   overflow: hidden;
+  max-width: 96vw;
+  margin-top: 5vh !important;
 }
 
 .ledger-detail-dialog ::v-deep .el-dialog__header {
-  padding: 20px 24px;
+  padding: 16px 20px;
   border-bottom: 1px solid #ebeef5;
   background: #fff;
 }
 
 .ledger-detail-dialog ::v-deep .el-dialog__body {
-  padding: 24px;
+  padding: 14px;
   background-color: #f5f7fa;
-  max-height: 70vh;
+  max-height: calc(100vh - 156px);
   overflow-y: auto;
 }
 
 .ledger-detail-dialog ::v-deep .el-dialog__footer {
-  padding: 16px 24px;
+  padding: 10px 20px;
   border-top: 1px solid #ebeef5;
   background: #fff;
 }
@@ -2012,27 +2161,28 @@ export default {
 .ledger-detail {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 10px;
 }
 
 .detail-section {
   background: #fff;
   border-radius: 8px;
-  padding: 16px;
+  padding: 12px;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
   border: none;
 }
 
 .ledger-form-dialog ::v-deep .el-dialog__body {
-  padding: 8px 14px 56px;
+  padding: 8px 12px 48px;
   background: #f7f8fa;
-  max-height: 70vh;
+  max-height: calc(100vh - 148px);
   overflow-y: auto;
   overflow-x: hidden;
 }
 
 .ledger-form-dialog ::v-deep .el-dialog {
   max-width: 96vw;
+  margin-top: 4vh !important;
 }
 
 .ledger-form-dialog ::v-deep .el-dialog__footer {
@@ -2040,13 +2190,13 @@ export default {
   bottom: 0;
   background: #fff;
   border-top: 1px solid #ebeef5;
-  padding: 10px 18px;
+  padding: 8px 18px;
   z-index: 1;
 }
 
 .ledger-form {
   .el-form-item {
-    margin-bottom: 8px;
+    margin-bottom: 6px;
   }
 
   .el-input,
@@ -2060,27 +2210,200 @@ export default {
   background: #fff;
   border-radius: 8px;
   border: 1px solid #ebeef5;
-  padding: 8px 12px 2px;
-  margin-bottom: 8px;
+  padding: 7px 12px 3px;
+  margin-bottom: 6px;
 }
 
 .ledger-form-section .section-title {
   font-size: 14px;
   font-weight: 600;
   color: #303133;
-  margin-bottom: 6px;
+  margin-bottom: 1px;
   padding-left: 10px;
   border-left: 3px solid #409EFF;
-  margin-top: 9px;
+  margin-top: 1px;
 }
 
 .ledger-form-section.section-related {
-  padding: 4px 8px 0;
+  padding: 6px 10px 2px;
   margin-bottom: 4px;
 }
 
 .ledger-form-section.section-related .section-title {
-  margin-bottom: 2px;
+  margin-bottom: 6px;
+}
+
+.relation-form-item ::v-deep .el-form-item__content {
+  position: relative;
+  margin-left: 0 !important;
+}
+
+.relation-summary-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 54px;
+  padding: 8px 12px;
+  border: 1px solid #e4e7ed;
+  border-radius: 6px;
+  background: #fbfcff;
+}
+
+.relation-summary-main {
+  min-width: 0;
+}
+
+.relation-summary-row {
+  display: flex;
+  align-items: flex-start;
+  min-width: 0;
+  color: #606266;
+  font-size: 13px;
+  line-height: 22px;
+}
+
+.relation-summary-label {
+  flex: 0 0 auto;
+  color: #909399;
+}
+
+.relation-summary-value {
+  min-width: 0;
+  color: #303133;
+  font-weight: 500;
+  word-break: break-all;
+}
+
+.section-track ::v-deep .el-form-item__label,
+.section-core ::v-deep .el-form-item__label,
+.section-completion ::v-deep .el-form-item__label {
+  float: none;
+  display: block;
+  width: auto !important;
+  line-height: 20px;
+  padding: 0 0 6px;
+  color: #606266;
+  font-size: 13px;
+  text-align: left;
+}
+
+.section-track ::v-deep .el-form-item__content,
+.section-core ::v-deep .el-form-item__content,
+.section-completion ::v-deep .el-form-item__content {
+  margin-left: 0 !important;
+  line-height: normal;
+}
+
+.section-track .section-title,
+.section-core .section-title,
+.section-completion .section-title,
+.section-closed .section-title {
+  margin: 0 0 8px;
+  line-height: 1.2;
+}
+
+.section-track,
+.section-core,
+.section-completion,
+.section-closed {
+  padding: 8px 12px 10px;
+}
+
+.section-core .el-form-item,
+.section-track .el-form-item,
+.section-completion .el-form-item {
+  margin-bottom: 0;
+}
+
+.track-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.track-grid-row {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px 16px;
+  align-items: start;
+  min-width: 0;
+}
+
+.track-grid-row--3 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.track-grid-row--task {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  padding-top: 2px;
+  border-top: 1px dashed #ebeef5;
+}
+
+.track-grid-row .el-form-item {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  min-width: 0;
+  margin-bottom: 0;
+}
+
+.section-track ::v-deep .user-container {
+  width: 100%;
+  min-height: 36px;
+  margin: 0;
+}
+
+.section-completion {
+  margin-top: 0;
+}
+
+.section-title-success {
+  border-left-color: #67c23a !important;
+}
+
+.section-title-danger {
+  border-left-color: #f56c6c !important;
+}
+
+.section-closed {
+  margin-top: 0;
+}
+
+.close-reason-item ::v-deep .el-form-item__label {
+  color: #f56c6c;
+  font-weight: 600;
+}
+
+.detail-closed-card {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px solid #fde2e2;
+  border-radius: 6px;
+  background: #fef0f0;
+}
+
+.section-core .form-item-strong {
+  margin-bottom: 0;
+}
+
+.section-core .form-item-full {
+  margin-top: 8px;
+}
+
+.title-label-row {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.title-label-error {
+  color: #f56c6c;
+  font-size: 12px;
+  font-weight: normal;
+  line-height: 20px;
 }
 
 .form-item-strong ::v-deep .el-input__inner {
@@ -2092,6 +2415,10 @@ export default {
   margin-bottom: 0;
 }
 
+.form-item-strong ::v-deep .el-form-item__error {
+  display: none;
+}
+
 .ledger-form ::v-deep .el-form-item__error {
   position: static;
   margin-top: 4px;
@@ -2101,6 +2428,64 @@ export default {
 .ledger-form-rich ::v-deep img {
   max-width: 100%;
   height: auto;
+}
+
+.ledger-form-section.section-process {
+  padding-bottom: 0;
+}
+
+.completion-inline-field ::v-deep .el-form-item__label {
+  color: #2f7d32;
+  font-weight: 600;
+  padding-bottom: 8px;
+}
+
+.section-completion ::v-deep .el-row {
+  margin-top: 2px;
+}
+
+.section-completion ::v-deep .el-col .el-form-item {
+  margin-bottom: 0;
+}
+
+.completion-reply-item ::v-deep .el-form-item__label {
+  padding-bottom: 8px;
+}
+
+.completion-reply-item ::v-deep .el-textarea__inner {
+  min-height: 64px !important;
+}
+
+.ledger-form ::v-deep .el-input__inner,
+.ledger-form ::v-deep .el-date-editor .el-input__inner {
+  height: 36px;
+  line-height: 36px;
+}
+
+.ledger-form ::v-deep .el-form-item__label,
+.ledger-form ::v-deep .el-form-item__content {
+  line-height: 36px;
+}
+
+.section-core ::v-deep .el-form-item__label,
+.section-completion ::v-deep .el-form-item__label {
+  line-height: 20px;
+  padding: 0 0 6px;
+}
+
+.section-track ::v-deep .el-form-item__label {
+  line-height: 20px;
+  padding: 0 0 6px;
+}
+
+.section-core ::v-deep .el-form-item__content,
+.section-completion ::v-deep .el-form-item__content,
+.section-track ::v-deep .el-form-item__content {
+  line-height: normal;
+}
+
+.ledger-form ::v-deep .el-textarea__inner {
+  min-height: 68px !important;
 }
 
 .ledger-form-footer {
@@ -2216,10 +2601,48 @@ export default {
   font-weight: 500;
 }
 
+.detail-summary-card {
+  margin-bottom: 12px;
+  padding: 12px;
+  border: 1px solid #ebeef5;
+  border-radius: 6px;
+  background: #f8f9fb;
+}
+
+.detail-title-label {
+  margin-bottom: 6px;
+  color: #909399;
+  font-size: 13px;
+}
+
+.detail-title-value {
+  color: #303133;
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1.35;
+  word-break: break-all;
+}
+
+.detail-relation-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  color: #606266;
+  font-size: 14px;
+  line-height: 1.4;
+  word-break: break-all;
+}
+
 .kv-grid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 12px 24px;
+}
+
+.detail-kv-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px 18px;
 }
 
 .kv-item {
@@ -2270,11 +2693,35 @@ export default {
   vertical-align: middle;
 }
 
+.detail-completion-card {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px solid #e1f3d8;
+  border-radius: 6px;
+  background: #f0f9eb;
+}
+
+.detail-completion-time {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.detail-completion-time .kv-label {
+  flex: 0 0 auto;
+}
+
+.detail-completion-reply {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid #d9ecff;
+}
+
 .text-block {
   background: #f8f9fb;
   border-radius: 6px;
-  padding: 16px;
-  margin-bottom: 12px;
+  padding: 12px;
+  margin-bottom: 0;
   border: 1px solid #ebeef5;
 }
 
@@ -2450,16 +2897,23 @@ export default {
 /* Quick Search Styling */
 .quick-select-row {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 10px;
-  padding: 0 20px;
+  gap: 8px;
+  padding: 0;
+  margin-top: 8px;
   margin-bottom: 0;
 }
 
 
 .quick-select-type {
   width: 120px;
-  flex-shrink: 0;
+  flex: 0 0 auto;
+}
+
+.quick-select-row ::v-deep .el-input {
+  flex: 1 1 260px;
+  min-width: 200px;
 }
 
 .quick-result {
@@ -2482,10 +2936,19 @@ export default {
   background-color: #f5f7fa;
   border-bottom: 1px solid #ebeef5;
   display: flex;
-  justify-content: space-between;
   align-items: center;
+  gap: 12px;
   font-size: 13px;
   color: #909399;
+}
+
+.quick-result__header .el-button {
+  margin-left: auto;
+}
+
+.quick-result__header ::v-deep .el-radio-button__inner {
+  padding: 5px 8px;
+  font-size: 12px;
 }
 
 .quick-result__body {
@@ -2515,9 +2978,13 @@ export default {
   font-size: 14px;
   color: #303133;
   font-weight: 500;
+  min-width: 0;
+  padding-right: 12px;
+  word-break: break-all;
 }
 
 .quick-result__meta {
+  flex: 0 0 auto;
   font-size: 12px;
   color: #909399;
 }
@@ -2532,6 +2999,17 @@ export default {
 @media (max-width: 900px) {
   .kv-grid {
     grid-template-columns: 1fr 1fr;
+  }
+
+  .detail-kv-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .header-flex,
+  .header-right {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 8px;
   }
 }
 
@@ -2550,6 +3028,45 @@ export default {
   .filter-form .el-select,
   .filter-form .el-date-editor {
     width: 100%;
+  }
+
+  .relation-summary-card {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .track-grid-row,
+  .track-grid-row--3,
+  .track-grid-row--task {
+    grid-template-columns: 1fr;
+  }
+
+  .detail-kv-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .detail-completion-time {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .quick-result__header {
+    height: auto;
+    min-height: 36px;
+    flex-wrap: wrap;
+    padding: 6px 12px;
+  }
+
+  .quick-result__item {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .quick-result__meta {
+    flex: none;
   }
 }
 </style>

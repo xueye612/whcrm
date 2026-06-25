@@ -204,6 +204,11 @@
                 <el-input v-model.trim="form.reply_content" :rows="3" type="textarea" placeholder="填写问题原因和处理结果" />
               </el-form-item>
             </el-col>
+            <el-col v-if="isFormClosed" :xs="24" :sm="24">
+              <el-form-item label="关闭原因" prop="close_reason" class="form-item-full">
+                <el-input v-model.trim="form.close_reason" :rows="3" type="textarea" placeholder="说明关闭原因，如重复反馈、无效问题、客户放弃等" />
+              </el-form-item>
+            </el-col>
           </el-row>
         </div>
       </el-form>
@@ -237,7 +242,8 @@
               <div class="kv-label">处理状态</div>
               <div class="kv-value">
                 <el-tag
-                  :type="ledgerDetail.status === '已完成' ? 'success' : ledgerDetail.status === '处理中' ? 'warning' : ledgerDetail.status === '已关闭' ? 'danger' : 'info'"
+                  :type="statusTagType(ledgerDetail.status)"
+                  :class="statusTagClass(ledgerDetail.status)"
                   size="mini">
                   {{ ledgerDetail.status || '—' }}
                 </el-tag>
@@ -292,6 +298,10 @@
             <div class="text-label">回复记录</div>
             <div class="text-value">{{ detailCompletedReply }}</div>
           </div>
+          <div v-if="detailClosedReason" class="text-block">
+            <div class="text-label">关闭原因</div>
+            <div class="text-value">{{ detailClosedReason }}</div>
+          </div>
         </section>
 
         <section class="detail-section">
@@ -312,9 +322,14 @@
           </el-timeline>
         </section>
 
-        <section v-if="ledgerDetail.status !== '已完成'" class="detail-section record-actions-section">
+        <section v-if="ledgerDetail.status !== '已完成' && ledgerDetail.status !== '已关闭'" class="detail-section record-actions-section">
           <el-divider content-position="left">补充处理</el-divider>
-          <el-input v-model.trim="recordForm.content" :rows="4" type="textarea" placeholder="填写处理结果" class="record-input" />
+          <el-input
+            v-model.trim="recordForm.content"
+            :rows="4"
+            type="textarea"
+            :placeholder="recordForm.new_status === '已关闭' ? '填写关闭原因' : '填写处理结果'"
+            class="record-input" />
           <div class="record-actions">
             <el-select v-model="recordForm.new_status" clearable placeholder="变更状态（可选）" class="record-select">
               <el-option v-for="item in statusOptions" :key="item" :label="item" :value="item" />
@@ -349,7 +364,7 @@ import {
   ledgerRecordAddAPI
 } from '@/api/ledger/ledger'
 import { ledgerCategoryListAPI } from '@/api/admin/other'
-import { isCompletedLedgerStatus, normalizeCompletionFields } from '@/utils/ledgerCompletion'
+import { isCompletedLedgerStatus, isClosedLedgerStatus, normalizeCompletionFields } from '@/utils/ledgerCompletion'
 
 export default {
   name: 'RelativeLedger',
@@ -378,7 +393,7 @@ export default {
       nopermission: false,
       list: [],
       tableHeight: '400px',
-      statusOptions: ['待处理', '处理中', '待验证', '已完成', '已关闭'],
+      statusOptions: ['待处理', '处理中', '待验证', '待发布', '已完成', '已关闭'],
       categoryOptions: ['使用指导', '操作错误', '功能完善', '系统BUG', '新增需求', '三方问题', '其他问题'],
       channelOptions: ['微信', '电话', '现场', '转述', '其他'],
       workOptions: [],
@@ -395,7 +410,8 @@ export default {
         contract_id: [{ required: true, message: '请选择合同', trigger: 'change' }],
         title: [{ required: true, message: '请填写反馈问题', trigger: 'blur' }],
         register_user_id: [{ validator: (rule, value, callback) => this.validateUserSelect(value, '请选择登记人', callback), trigger: 'change' }],
-        handler_user_id: [{ validator: (rule, value, callback) => this.validateUserSelect(value, '请选择处理人', callback), trigger: 'change' }]
+        handler_user_id: [{ validator: (rule, value, callback) => this.validateUserSelect(value, '请选择处理人', callback), trigger: 'change' }],
+        close_reason: [{ validator: (rule, value, callback) => this.validateCloseReason(value, callback), trigger: 'blur' }]
       },
       detailVisible: false,
       ledgerDetail: {},
@@ -468,14 +484,23 @@ export default {
     isFormCompleted() {
       return isCompletedLedgerStatus(this.form && this.form.status)
     },
+    isFormClosed() {
+      return isClosedLedgerStatus(this.form && this.form.status)
+    },
     detailCompletedReply() {
       if (!isCompletedLedgerStatus(this.ledgerDetail && this.ledgerDetail.status)) return ''
       if (this.ledgerDetail && this.ledgerDetail.completed_reply) return this.plainText(this.ledgerDetail.completed_reply)
       const record = this.recordList.find(item => item && item.new_status === '已完成' && item.content)
       return record ? this.plainText(record.content) : ''
     },
+    detailClosedReason() {
+      if (!isClosedLedgerStatus(this.ledgerDetail && this.ledgerDetail.status)) return ''
+      if (this.ledgerDetail && this.ledgerDetail.closed_reason) return this.plainText(this.ledgerDetail.closed_reason)
+      const record = this.recordList.find(item => item && item.new_status === '已关闭' && item.content)
+      return record ? this.plainText(record.content) : ''
+    },
     isRecordLocked() {
-      return this.recordOriginStatus === '已完成'
+      return this.recordOriginStatus === '已完成' || this.recordOriginStatus === '已关闭'
     }
   },
   watch: {
@@ -495,6 +520,20 @@ export default {
     this.fetchWorkOptions()
   },
   methods: {
+    statusTagType(status) {
+      const map = {
+        '待处理': 'info',
+        '处理中': 'warning',
+        '待验证': 'warning',
+        '待发布': '',
+        '已完成': 'success',
+        '已关闭': 'danger'
+      }
+      return map[status] || 'info'
+    },
+    statusTagClass(status) {
+      return status === '待发布' ? 'status-tag-release' : ''
+    },
     fetchCategoryOptions() {
       ledgerCategoryListAPI()
         .then(res => {
@@ -640,7 +679,8 @@ export default {
         class_id: '',
         register_user_id: this.getCurrentUserSelection(),
         handler_user_id: this.getCurrentUserSelection(),
-        reply_content: ''
+        reply_content: '',
+        close_reason: ''
       }
       this.form = normalizeCompletionFields(this.form, now)
       this.fetchClassOptions(this.form.work_id)
@@ -676,7 +716,8 @@ export default {
         class_id: row.class_id || '',
         register_user_id: row.register_user_id ? [{ id: row.register_user_id, realname: row.register_user_name || '' }] : this.getCurrentUserSelection(),
         handler_user_id: row.handler_user_id ? [{ id: row.handler_user_id, realname: row.handler_user_name || '' }] : this.getCurrentUserSelection(),
-        reply_content: row.completed_reply || ''
+        reply_content: row.completed_reply || '',
+        close_reason: row.closed_reason || ''
       }
       this.form = normalizeCompletionFields(this.form, () => this.getNowTime())
       this.fetchClassOptions(this.form.work_id)
@@ -708,6 +749,13 @@ export default {
       const list = Array.isArray(value) ? value : []
       if (!list.length) {
         callback(new Error(message))
+        return
+      }
+      callback()
+    },
+    validateCloseReason(value, callback) {
+      if (isClosedLedgerStatus(this.form && this.form.status) && !String(value || '').trim()) {
+        callback(new Error('请填写关闭原因'))
         return
       }
       callback()
@@ -786,6 +834,11 @@ export default {
     },
     handleFormStatusChange() {
       this.form = normalizeCompletionFields(this.form, () => this.getNowTime())
+      this.$nextTick(() => {
+        if (this.$refs.ledgerForm) {
+          this.$refs.ledgerForm.validateField('close_reason')
+        }
+      })
     },
     plainText(value) {
       return String(value || '')
@@ -833,6 +886,7 @@ export default {
         const normalized = normalizeCompletionFields(payload, () => this.getNowTime())
         payload.finish_time = normalized.finish_time
         payload.reply_content = normalized.reply_content
+        payload.close_reason = normalized.close_reason
         delete payload.remark
         if (!payload.id) {
           await this.warnExpiredContractOnCreate(payload)
@@ -892,7 +946,7 @@ export default {
     },
     addRecord() {
       if (!this.recordForm.content) {
-        this.$message.error('请填写处理说明')
+        this.$message.error(this.recordForm.new_status === '已关闭' ? '请填写关闭原因' : '请填写处理说明')
         return
       }
       const params = {
@@ -975,6 +1029,13 @@ export default {
 
 <style lang="scss" scoped>
 @import '../styles/relativecrm.scss';
+
+::v-deep .status-tag-release {
+  color: #8e44ad;
+  background-color: #f4ecf7;
+  border-color: #e8daef;
+}
+
 .ledger-form-dialog ::v-deep .el-dialog__body {
   padding: 16px 20px 62px;
   background: #f7f8fa;

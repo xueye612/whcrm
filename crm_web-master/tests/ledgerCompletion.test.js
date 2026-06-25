@@ -62,9 +62,24 @@ test('non-completed status clears hidden completion fields', () => {
   const form = normalizeCompletionFields({
     status: '处理中',
     finish_time: '2026-06-22 09:00:00',
-    reply_content: '这条不应该提交'
+    reply_content: '这条不应该提交',
+    close_reason: '也不该提交'
   }, NOW)
 
   assert.strictEqual(form.finish_time, '')
   assert.strictEqual(form.reply_content, '')
+  assert.strictEqual(form.close_reason, '')
+})
+
+test('closed status keeps close reason and clears completion fields', () => {
+  const form = normalizeCompletionFields({
+    status: '已关闭',
+    finish_time: '2026-06-22 09:00:00',
+    reply_content: '不应提交',
+    close_reason: '重复反馈'
+  }, NOW)
+
+  assert.strictEqual(form.finish_time, '')
+  assert.strictEqual(form.reply_content, '')
+  assert.strictEqual(form.close_reason, '重复反馈')
 })

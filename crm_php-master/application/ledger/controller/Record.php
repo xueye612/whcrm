@@ -66,6 +66,9 @@ class Record extends ApiCommon
         $updateData = [];
         if (!empty($param['new_status'])) {
             $newStatus = $param['new_status'];
+            if ($newStatus === '已关闭' && trim((string)$param['content']) === '') {
+                return resultArray(['error' => '请填写关闭原因']);
+            }
             $updateData['status'] = $newStatus;
             if ($newStatus === '已完成') {
                 $updateData['finish_time'] = time();

@@ -71,6 +71,8 @@ class Ledger extends ApiCommon
         $userInfo = $this->userInfo;
         $replyContent = $this->normalizeReplyContent($param['reply_content'] ?? '');
         unset($param['reply_content']);
+        $closeReason = $this->normalizeReplyContent($param['close_reason'] ?? '');
+        unset($param['close_reason']);
 
         $relationError = $this->normalizeRelation($param);
         if ($relationError) {
@@ -85,12 +87,16 @@ class Ledger extends ApiCommon
         $this->normalizeProjectFields($param);
 
         $allowedCategory = $this->getAllowedCategories();
-        $allowedStatus = ['待处理', '处理中', '待验证', '已完成', '已关闭'];
+        $allowedStatus = ['待处理', '处理中', '待验证', '待发布', '已完成', '已关闭'];
         if (!empty($param['category']) && !in_array($param['category'], $allowedCategory)) {
             return resultArray(['error' => '问题分类不合法']);
         }
         if (!empty($param['status']) && !in_array($param['status'], $allowedStatus)) {
             return resultArray(['error' => '处理状态不合法']);
+        }
+        $closeReasonError = $this->validateCloseReason($param['status'] ?? '', $closeReason);
+        if ($closeReasonError) {
+            return resultArray(['error' => $closeReasonError]);
         }
 
         $param['register_user_id'] = $this->normalizeUserId($param['register_user_id'] ?? 0);
@@ -141,6 +147,7 @@ class Ledger extends ApiCommon
             $ledgerId = $model->ledger_id;
             $model->addProgressRecord($ledgerId, $param['customer_id'], '创建台账', '', $param['status'], $userInfo['id']);
             $this->addCompletionReplyRecord($model, $ledgerId, $param['customer_id'], $replyContent, '', $param['status'], $userInfo['id']);
+            $this->addCloseReasonRecord($model, $ledgerId, $param['customer_id'], $closeReason, '', $param['status'], $userInfo['id']);
             $this->addLedgerActivity($ledgerId, $param['customer_id'], '创建台账', $userInfo['id'], 1);
             $taskId = $this->maybeCreateProjectTask($ledgerId, $param, $userInfo);
             if ($taskId) {
@@ -159,6 +166,8 @@ class Ledger extends ApiCommon
         $userInfo = $this->userInfo;
         $replyContent = $this->normalizeReplyContent($param['reply_content'] ?? '');
         unset($param['reply_content']);
+        $closeReason = $this->normalizeReplyContent($param['close_reason'] ?? '');
+        unset($param['close_reason']);
 
         if (empty($param['id'])) {
             return resultArray(['error' => '参数错误']);
@@ -172,12 +181,17 @@ class Ledger extends ApiCommon
             return resultArray(['error' => '无权限']);
         }
         $allowedCategory = $this->getAllowedCategories();
-        $allowedStatus = ['待处理', '处理中', '待验证', '已完成', '已关闭'];
+        $allowedStatus = ['待处理', '处理中', '待验证', '待发布', '已完成', '已关闭'];
         if (!empty($param['category']) && !in_array($param['category'], $allowedCategory)) {
             return resultArray(['error' => '问题分类不合法']);
         }
         if (!empty($param['status']) && !in_array($param['status'], $allowedStatus)) {
             return resultArray(['error' => '处理状态不合法']);
+        }
+        $mergedStatus = $param['status'] ?? $oldData['status'] ?? '';
+        $closeReasonError = $this->validateCloseReason($mergedStatus, $closeReason, (int)$param['id']);
+        if ($closeReasonError) {
+            return resultArray(['error' => $closeReasonError]);
         }
 
         if (array_key_exists('customer_id', $param) || array_key_exists('business_id', $param) || array_key_exists('contract_id', $param)) {
@@ -260,6 +274,15 @@ class Ledger extends ApiCommon
                 $mergedData['status'] ?? '',
                 $userInfo['id']
             );
+            $this->addCloseReasonRecord(
+                $model,
+                $ledgerId,
+                $oldData['customer_id'],
+                $closeReason,
+                $oldData['status'] ?? '',
+                $mergedData['status'] ?? '',
+                $userInfo['id']
+            );
             $taskId = $this->maybeCreateProjectTask($ledgerId, $mergedData, $userInfo);
             if ($taskId) {
                 $model->addProgressRecord($ledgerId, $oldData['customer_id'], '已生成项目任务', '', $param['status'] ?? $oldData['status'], $userInfo['id']);
@@ -313,6 +336,7 @@ class Ledger extends ApiCommon
             ['field' => 'title', 'name' => '反馈问题', 'form_type' => 'text'],
             ['field' => 'description_plain', 'name' => '描述信息', 'form_type' => 'text'],
             ['field' => 'completed_reply_plain', 'name' => '回答', 'form_type' => 'text'],
+            ['field' => 'closed_reason_plain', 'name' => '关闭原因', 'form_type' => 'text'],
             ['field' => 'category', 'name' => '问题分类', 'form_type' => 'text'],
             ['field' => 'status', 'name' => '处理状态', 'form_type' => 'text'],
             ['field' => 'feedback_user', 'name' => '反馈人', 'form_type' => 'text'],
@@ -339,6 +363,7 @@ class Ledger extends ApiCommon
                 $item['relation_name'] = $item['business_name'] ?: ($item['contract_name'] ?: ($item['contract_num'] ?: '-'));
                 $item['description_plain'] = $this->normalizeTaskDescription($item['description'] ?? '');
                 $item['completed_reply_plain'] = $this->normalizeTaskDescription($item['completed_reply'] ?? '');
+                $item['closed_reason_plain'] = $this->normalizeTaskDescription($item['closed_reason'] ?? '');
             }
             $data['list'] = $list;
             return $data;
@@ -387,6 +412,59 @@ class Ledger extends ApiCommon
         $model->addProgressRecord($ledgerId, $customerId, $content, $oldStatus, '已完成', $userId);
         $this->addLedgerActivity($ledgerId, $customerId, $content, $userId, 1);
         return true;
+    }
+
+    protected function addCloseReasonRecord($model, $ledgerId, $customerId, $content, $oldStatus, $newStatus, $userId)
+    {
+        $content = $this->normalizeReplyContent($content);
+        if ($content === '' || $newStatus !== '已关闭') {
+            return false;
+        }
+
+        $lastContent = db('customer_ledger_record')
+            ->where('ledger_id', $ledgerId)
+            ->where('new_status', '已关闭')
+            ->where('content', '<>', '创建台账')
+            ->where('content', 'not like', '状态变更：%')
+            ->where('content', 'not like', '同步任务：%')
+            ->order('create_time desc,record_id desc')
+            ->value('content');
+        if ($lastContent === $content) {
+            return false;
+        }
+
+        $model->addProgressRecord($ledgerId, $customerId, $content, $oldStatus, '已关闭', $userId);
+        $this->addLedgerActivity($ledgerId, $customerId, $content, $userId, 1);
+        return true;
+    }
+
+    protected function validateCloseReason($status, $closeReason, $ledgerId = 0)
+    {
+        if ($status !== '已关闭') {
+            return '';
+        }
+        if ($this->normalizeReplyContent($closeReason) !== '') {
+            return '';
+        }
+        if ($ledgerId && $this->getLatestCloseReason($ledgerId) !== '') {
+            return '';
+        }
+        return '请填写关闭原因';
+    }
+
+    protected function getLatestCloseReason($ledgerId)
+    {
+        if (empty($ledgerId)) {
+            return '';
+        }
+        return (string)db('customer_ledger_record')
+            ->where('ledger_id', $ledgerId)
+            ->where('new_status', '已关闭')
+            ->where('content', '<>', '创建台账')
+            ->where('content', 'not like', '状态变更：%')
+            ->where('content', 'not like', '同步任务：%')
+            ->order('create_time desc,record_id desc')
+            ->value('content');
     }
 
     protected function normalizeRelation(&$param)
