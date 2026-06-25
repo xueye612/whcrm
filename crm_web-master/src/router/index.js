@@ -16,6 +16,7 @@ import taskExamineRouter from './modules/taskExamine'
 import workLogRouter from './modules/workLog'
 import addressBookRouter from './modules/addressBook'
 import calendarRouter from './modules/calendar'
+import mobileRouter from './modules/mobile'
 
 /**
 * hidden: true                   if `hidden:true` will not show in the sidebar(default is false)
@@ -47,6 +48,7 @@ export const constantRouterMap = [
     hidden: true
   },
   userRouter,
+  mobileRouter,
   {
     path: '*',
     redirect: '/404',

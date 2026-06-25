@@ -1,6 +1,7 @@
 <template>
   <div
-    class="login-wrapper">
+    class="login-wrapper"
+    :class="{ 'login-wrapper--mobile': isMobileClient }">
     <div class="top-nav">
       <img
         src="~@/assets/logo_white.png"
@@ -29,7 +30,11 @@
           <component
             :is="activeCom"/>
 
-          <div class="use-tip">
+          <div v-if="isMobileClient" class="mobile-login-tip">
+            已识别为移动设备，登录后将进入移动台账；如需桌面功能，可在移动台账底部进入「桌面版」。
+          </div>
+
+          <div v-if="!isMobileClient" class="use-tip">
             <div>
               <span class="text">建议使用</span>
               <img src="~@/assets/login/chrome.png" alt="" class="icon">
@@ -59,6 +64,7 @@
 
 <script>
 import LoginByPwd from './component/LoginByPwd'
+import { isMobileClient } from '@/utils/mobileClient'
 
 export default {
   name: 'Login',
@@ -68,15 +74,38 @@ export default {
   data() {
     return {
       activeCom: 'LoginByPwd',
+      isMobileClient: false,
       titleMap: {
         LoginByPwd: '欢迎登录'
       }
     }
   },
-  watch: {},
   created() {
+    this.syncMobileLoginClass()
+    if (typeof window !== 'undefined') {
+      window.addEventListener('resize', this.syncMobileLoginClass)
+    }
   },
-  methods: {}
+  beforeDestroy() {
+    if (typeof window !== 'undefined') {
+      window.removeEventListener('resize', this.syncMobileLoginClass)
+    }
+    const app = document.getElementById('app')
+    if (app) app.classList.remove('is-mobile-login')
+  },
+  methods: {
+    syncMobileLoginClass() {
+      this.isMobileClient = isMobileClient()
+      const app = document.getElementById('app')
+      if (app) {
+        app.classList.toggle('is-mobile-login', this.isMobileClient)
+        if (this.isMobileClient) {
+          app.style.minWidth = ''
+          app.style.minHeight = ''
+        }
+      }
+    }
+  }
 }
 </script>
 
@@ -92,6 +121,46 @@ export default {
   display: flex;
   flex-direction: column;
   overflow: auto;
+
+  &.login-wrapper--mobile {
+    .container {
+      margin-top: 0;
+      padding: 12px;
+      align-items: stretch;
+    }
+
+    .left {
+      display: none;
+    }
+
+    .right {
+      width: 100%;
+      max-width: 420px;
+      margin: 0 auto;
+      padding-top: 0;
+    }
+
+    .login-main-content {
+      height: auto;
+      min-height: 420px;
+      padding-bottom: 16px;
+    }
+
+    .top-nav {
+      padding: 16px 12px 0;
+    }
+  }
+
+  .mobile-login-tip {
+    margin: 0 24px 12px;
+    padding: 10px 12px;
+    font-size: 13px;
+    line-height: 1.5;
+    color: #606266;
+    background: #ecf5ff;
+    border: 1px solid #d9ecff;
+    border-radius: 6px;
+  }
 
   .top-nav {
     width: 100%;

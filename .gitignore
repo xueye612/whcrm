@@ -5,3 +5,4 @@ crm_php-master/config/database.php
 
 crm_web-master/node_modules/
 crm_web-master/dist/
+.cursor

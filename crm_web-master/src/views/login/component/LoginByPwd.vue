@@ -77,6 +77,7 @@ import { Loading } from 'element-ui'
 
 import Mixins from './Mixins'
 import { debounce } from 'throttle-debounce'
+import { resolvePostLoginPath } from '@/utils/mobileClient'
 
 export default {
   name: 'LoginByPwd',
@@ -152,9 +153,19 @@ export default {
       this.$store
         .dispatch('Login', this.form)
         .then(res => {
-          this.$router.push({ path: this.redirect || '/' })
+          if (res.data && res.data.hasOwnProperty('companyList')) {
+            loading.close()
+            return
+          }
+          return this.$store.dispatch('getAuth').then(auth => {
+            const path = resolvePostLoginPath(this.redirect, auth)
+            this.$router.push({ path })
+          }).catch(() => {
+            this.$router.push({ path: this.redirect || '/' })
+          })
         })
-        .catch(() => {
+        .catch(() => {})
+        .finally(() => {
           loading.close()
         })
     },

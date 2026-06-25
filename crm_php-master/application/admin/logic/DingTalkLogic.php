@@ -82,6 +82,52 @@ class DingTalkLogic
         return $this->postWebhook($webhookUrl, $payload, $config);
     }
 
+    public function sendLedgerNotify($event, array $ledger, $operatorUserId = 0, array $extra = [])
+    {
+        $config = $this->getTaskNotifyConfig();
+        $webhookUrl = isset($config['webhook_url']) ? trim((string)$config['webhook_url']) : '';
+        if ($webhookUrl === '') {
+            return false;
+        }
+
+        $operatorName = isset($extra['operator_name']) ? (string)$extra['operator_name'] : '';
+        if ($operatorName === '' && !empty($operatorUserId)) {
+            $operatorName = Db::name('admin_user')->where('id', $operatorUserId)->value('realname') ?: '';
+        }
+
+        $title = (string)($ledger['title'] ?? '台账');
+        $customerName = (string)($ledger['customer_name'] ?? '-');
+        $handlerName = (string)($ledger['handler_user_name'] ?? '-');
+        $status = (string)($ledger['status'] ?? '-');
+        $summary = isset($extra['summary']) ? (string)$extra['summary'] : $event;
+        $link = isset($extra['link']) ? (string)$extra['link'] : '';
+
+        $lines = [];
+        $lines[] = '**' . $summary . '**';
+        $lines[] = '';
+        $lines[] = '**标题**：' . ($title ?: '-');
+        $lines[] = '**客户**：' . $customerName;
+        $lines[] = '**处理人**：' . $handlerName;
+        $lines[] = '**状态**：' . $status;
+        $lines[] = '**操作人**：' . ($operatorName ?: '-');
+        if ($link !== '') {
+            $lines[] = '**链接**：' . '[打开台账](' . $link . ')';
+        }
+
+        $payload = [
+            'msgtype' => 'markdown',
+            'markdown' => [
+                'title' => '台账通知',
+                'text' => implode("\n", $lines)
+            ],
+            'at' => [
+                'isAtAll' => $event === 'ledger_created',
+            ]
+        ];
+
+        return $this->postWebhook($webhookUrl, $payload, $config);
+    }
+
     protected function mapStatus($status)
     {
         $status = (int)$status;

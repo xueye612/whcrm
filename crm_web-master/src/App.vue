@@ -31,6 +31,7 @@ import XrUpgradeDialog from '@/components/XrUpgradeDialog'
 import CRMImport from '@/components/CRMImport'
 import { mapGetters } from 'vuex'
 import cache from '@/utils/cache'
+import { syncMobileViewport } from '@/utils/mobileViewport'
 
 
 export default {
@@ -54,8 +55,12 @@ export default {
     ...mapGetters(['activeIndex', 'addRouters', 'userInfo'])
   },
   watch: {
-    $route(to, from) {
-      this.showPreviewImg = false // 切换页面隐藏图片预览
+    $route: {
+      immediate: true,
+      handler(to) {
+        this.showPreviewImg = false
+        this.toggleMobileRouteClass(to)
+      }
     },
     addRouters() {
       if (this.userInfo && this.userInfo.is_read_notice != 1) {
@@ -69,8 +74,27 @@ export default {
     this.addBus()
     this.addDocumentVisibilityChange()
     this.setMinHeight()
+    this.toggleMobileRouteClass(this.$route)
   },
   methods: {
+    toggleMobileRouteClass(route) {
+      const isMobileRoute = !!(route && route.path && route.path.startsWith('/m'))
+      const app = document.getElementById('app')
+      if (app) {
+        app.classList.toggle('is-mobile-route', isMobileRoute)
+      }
+      document.body.classList.toggle('is-mobile-route', isMobileRoute)
+      document.documentElement.classList.toggle('is-mobile-route', isMobileRoute)
+      if (isMobileRoute) {
+        if (app) {
+          app.style.minWidth = ''
+          app.style.minHeight = ''
+        }
+        this.$nextTick(() => syncMobileViewport())
+      } else {
+        this.setMinHeight()
+      }
+    },
     addDocumentVisibilityChange() {
       // 网页当前状态判断
       // hidden,
@@ -112,6 +136,9 @@ export default {
 
     setMinHeight() {
       this.$nextTick(() => {
+        if (this.$route && this.$route.path && this.$route.path.startsWith('/m')) {
+          return
+        }
         const dpr = window.devicePixelRatio || 1
         const clientWidth = document.body.clientWidth
         const dom = document.getElementById('app')
@@ -134,7 +161,40 @@ export default {
   width: 100%;
   position: relative;
   height: 100%;
-  min-width: 1200px;
   min-height: 605px;
+}
+
+@media (min-width: 769px) {
+  #app {
+    min-width: 1200px;
+  }
+}
+
+#app.is-mobile-route {
+  min-width: 0 !important;
+  min-height: 0 !important;
+  width: 100%;
+  max-width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+#app.is-mobile-login {
+  min-width: 0;
+  min-height: 0;
+  overflow-x: hidden;
+}
+
+body.is-mobile-route {
+  min-width: 0;
+}
+
+#app.is-mobile-route > .router-view {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  height: 100%;
+  overflow: hidden;
 }
 </style>

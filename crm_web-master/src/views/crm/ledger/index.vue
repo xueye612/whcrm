@@ -4,44 +4,19 @@
     xs-empty-icon="nopermission"
     xs-empty-text="暂无权限"
     class="ledger-page">
-    <div class="dashboard">
-      <div class="dashboard-card total" @click="quickFilter('')">
-        <div class="card-icon"><i class="el-icon-s-data"/></div>
-        <div class="card-info">
-          <div class="card-label">总台账</div>
-          <div class="card-num">{{ stats.total }}</div>
-        </div>
-      </div>
-      <div class="dashboard-card pending" @click="quickFilter('待处理')">
-        <div class="card-icon"><i class="el-icon-bell"/></div>
-        <div class="card-info">
-          <div class="card-label">待处理</div>
-          <div class="card-num">{{ stats.pending }}</div>
-        </div>
-      </div>
-      <div class="dashboard-card processing" @click="quickFilter('处理中')">
-        <div class="card-icon"><i class="el-icon-service"/></div>
-        <div class="card-info">
-          <div class="card-label">处理中</div>
-          <div class="card-num">{{ stats.processing }}</div>
-        </div>
-      </div>
-      <div class="dashboard-card release-pending" @click="quickFilter('待发布')">
-        <div class="card-icon"><i class="el-icon-upload2"/></div>
-        <div class="card-info">
-          <div class="card-label">待发布</div>
-          <div class="card-num">{{ stats.releasePending }}</div>
-        </div>
-      </div>
-      <div class="dashboard-card completed" @click="quickFilter('已完成')">
-        <div class="card-icon"><i class="el-icon-success"/></div>
-        <div class="card-info">
-          <div class="card-label">已完成</div>
-          <div class="card-num">{{ stats.completed }}</div>
-        </div>
-      </div>
-    </div>
-    <div class="filter-bar">
+    <el-alert
+      v-show="showMobileHint"
+      class="mobile-ledger-hint"
+      type="info"
+      :closable="true"
+      show-icon
+      title="当前为移动设备，已推荐使用移动台账">
+      <router-link to="/m/ledger">进入移动台账</router-link>
+      <span class="mobile-ledger-hint__sep">|</span>
+      <router-link to="/m/ledger/quick">快捷录入</router-link>
+    </el-alert>
+    <ledger-status-dashboard :stats="stats" @filter="quickFilter" />
+    <div v-show="canRead" class="filter-bar">
       <el-form :inline="true" :model="filters" class="filter-form">
         <el-form-item label="客户">
           <el-select
@@ -513,35 +488,20 @@
           </div>
         </section>
 
-        <section class="detail-section detail-section-desc">
-          <div class="section-title">描述信息</div>
-          <div class="text-block">
-            <div v-if="detail.description" class="text-value rich-text rich-html" v-html="detail.description" />
-            <div v-else class="text-value text-empty">暂无描述</div>
-          </div>
-        </section>
+        <div class="detail-content-grid">
+          <section class="detail-section detail-section-desc">
+            <div class="section-title">描述信息</div>
+            <div class="text-block">
+              <div v-if="detail.description" class="text-value rich-text rich-html" v-html="detail.description" />
+              <div v-else class="text-value text-empty">暂无描述</div>
+            </div>
+          </section>
 
-
-
-        <section v-loading="recordLoading" v-if="recordList.length > 1" class="detail-section">
-          <div class="section-title">进度记录</div>
-          <el-timeline class="record-timeline">
-            <el-timeline-item
-              v-for="(item, index) in recordList"
-              :key="item.followup_id"
-              :timestamp="item.create_time ? item.create_time.slice(0, 16) : ''"
-              :color="index === 0 ? '#409EFF' : '#C0C4CC'"
-              :class="{ 'is-current': index === 0 }">
-              <div class="record-content">
-                <div class="record-user">{{ item.create_user_name || '—' }}</div>
-                <div class="record-text">{{ item.content || '—' }}</div>
-                <div v-if="item.old_status && item.new_status && item.old_status != item.new_status" class="record-status">
-                  状态：{{ item.old_status }} → {{ item.new_status }}
-                </div>
-              </div>
-            </el-timeline-item>
-          </el-timeline>
-        </section>
+          <section v-loading="recordLoading" v-show="recordList.length > 0" class="detail-section detail-section-records">
+            <div class="section-title">进度记录</div>
+            <ledger-record-timeline :records="recordList" variant="desktop" />
+          </section>
+        </div>
 
         <section v-if="detail.status !== '已完成' && detail.status !== '已关闭'" class="detail-section record-actions-section">
           <el-divider content-position="left">补充处理</el-divider>
@@ -587,20 +547,28 @@ import { ledgerCategoryListAPI } from '@/api/admin/other'
 import { crmCustomerIndexAPI, crmCustomerQueryContactsAPI } from '@/api/crm/customer'
 import { crmContractIndexAPI, crmContractReadAPI } from '@/api/crm/contract'
 import { XhUserCell } from '@/components/CreateCom'
-import Tinymce from '@/components/Tinymce'
+import LedgerStatusDashboard from './components/LedgerStatusDashboard'
+import LedgerRecordTimeline from './components/LedgerRecordTimeline'
+import ledgerMixin from '@/mixins/ledgerMixin'
+import { isMobileClient } from '@/utils/mobileClient'
 import { workIndexWorkListAPI } from '@/api/pm/task'
 import { workWorkStatisticAPI } from '@/api/pm/statistics'
 import { downloadExcelWithResData } from '@/utils'
+import { DEFAULT_LEDGER_CATEGORY } from '@/utils/ledgerFormat'
 import { isCompletedLedgerStatus, isClosedLedgerStatus, normalizeCompletionFields } from '@/utils/ledgerCompletion'
 
 export default {
   name: 'CustomerLedger',
   components: {
     XhUserCell,
-    Tinymce
+    LedgerStatusDashboard,
+    LedgerRecordTimeline,
+    Tinymce: () => import('@/components/Tinymce')
   },
+  mixins: [ledgerMixin],
   data() {
     return {
+      showMobileHint: false,
       stats: {
         total: 0,
         pending: 0,
@@ -775,25 +743,29 @@ export default {
     }
   },
   created() {
+    if (isMobileClient() && !this.$route.query.desktop) {
+      this.$router.replace('/m/ledger')
+      return
+    }
     this.filters.feedback_date = this.getDefaultFilterDateRange()
     const hasRouteFilter = this.applyRouteQuery(true)
     if (this.canRead && !hasRouteFilter) this.getList()
     this.fetchCategoryOptions()
     this.fetchWorkOptions()
-    this.fetchStats()
+    this.fetchLedgerStats()
+    this.updateMobileLedgerHint()
+    if (typeof window !== 'undefined') {
+      window.addEventListener('resize', this.updateMobileLedgerHint)
+    }
+  },
+  beforeDestroy() {
+    if (typeof window !== 'undefined') {
+      window.removeEventListener('resize', this.updateMobileLedgerHint)
+    }
   },
   methods: {
     fetchStats() {
-      if (!this.canRead) return
-      const p1 = ledgerIndexAPI({ page: 1, limit: 1 }).then(res => (res.data ? res.data.dataCount : 0))
-      const p2 = ledgerIndexAPI({ page: 1, limit: 1, status: '待处理' }).then(res => (res.data ? res.data.dataCount : 0))
-      const p3 = ledgerIndexAPI({ page: 1, limit: 1, status: '处理中' }).then(res => (res.data ? res.data.dataCount : 0))
-      const p4 = ledgerIndexAPI({ page: 1, limit: 1, status: '待发布' }).then(res => (res.data ? res.data.dataCount : 0))
-      const p5 = ledgerIndexAPI({ page: 1, limit: 1, status: '已完成' }).then(res => (res.data ? res.data.dataCount : 0))
-
-      Promise.all([p1, p2, p3, p4, p5]).then(([total, pending, processing, releasePending, completed]) => {
-        this.stats = { total, pending, processing, releasePending, completed }
-      })
+      return this.fetchLedgerStats()
     },
     quickFilter(status) {
       this.filters.status = status
@@ -1345,7 +1317,7 @@ export default {
         description: '',
         feedback_user: '',
         feedback_channel: '微信',
-        category: '其他问题',
+        category: DEFAULT_LEDGER_CATEGORY,
         status: '待处理',
         feedback_time: now,
         register_time: now,
@@ -1890,6 +1862,15 @@ export default {
 </script>
 
 <style lang="scss" scoped>
+.mobile-ledger-hint {
+  margin-bottom: 10px;
+}
+
+.mobile-ledger-hint__sep {
+  margin: 0 8px;
+  color: #c0c4cc;
+}
+
 .ledger-page {
   padding: 12px 14px 16px;
   background-color: #f0f2f5;
@@ -2169,6 +2150,33 @@ export default {
   gap: 8px;
 }
 
+.ledger-detail-dialog .detail-content-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
+  gap: 8px;
+  align-items: start;
+}
+
+.ledger-detail-dialog .detail-section-desc,
+.ledger-detail-dialog .detail-section-records {
+  height: 100%;
+}
+
+.ledger-detail-dialog .detail-section-records {
+  max-height: 360px;
+  overflow-y: auto;
+}
+
+@media (max-width: 960px) {
+  .ledger-detail-dialog .detail-content-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .ledger-detail-dialog .detail-section-records {
+    max-height: none;
+  }
+}
+
 .ledger-detail-dialog .detail-section {
   padding: 10px 12px;
   border: 1px solid #ebeef5;
@@ -2185,6 +2193,10 @@ export default {
 }
 
 .ledger-detail-dialog .header-flex {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   margin-bottom: 8px;
   padding-bottom: 8px;
   border-bottom: 1px solid #f0f2f5;
@@ -2195,6 +2207,8 @@ export default {
 }
 
 .ledger-detail-dialog .header-right {
+  display: flex;
+  align-items: center;
   gap: 8px;
   flex-wrap: wrap;
   justify-content: flex-end;
@@ -2395,6 +2409,12 @@ export default {
   color: #8e44ad;
   background-color: #f4ecf7;
   border-color: #e8daef;
+}
+
+.ledger-detail-dialog ::v-deep .status-tag-closed.is-plain {
+  color: #909399;
+  background-color: #f4f4f5;
+  border-color: #e9e9eb;
 }
 
 .detail-section {

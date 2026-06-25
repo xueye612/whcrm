@@ -30,12 +30,7 @@ class AuthenticateBehavior
         $scan = new \com\Scan();
         $response = $scan->webscan_Check();            
 		
-		// 临时绕过 finance/record/index 认证
-        if ($m === 'finance' && $c === 'record' && $a === 'index') {
-            \think\Log::info('AuthenticateBehavior: Bypassing authentication for finance/record/index');
-            return true;
-        }
-
+        // finance/record/index requires authentication like other endpoints
 		$allow = $params['allow']; //登录用户可访问
 		$permission = $params['permission']; //无限制
 		/*获取头部信息*/ 

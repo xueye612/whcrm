@@ -451,7 +451,7 @@ export default {
         user_id: this.activeTime.userId
       }).then(res => {
         const rawList = (res.data && res.data.list) ? res.data.list : []
-        const hasCustomerLedger = rawList.some(item => item.name === '客户台账')
+        const hasCustomerLedger = rawList.some(item => item.name === '客户台账' || item.name === '台账')
         const cusCheck = rawList.filter(item => {
           if (item.name === '台账' && hasCustomerLedger) return false
           return true

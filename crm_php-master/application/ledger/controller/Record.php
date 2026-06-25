@@ -5,6 +5,8 @@
 namespace app\ledger\controller;
 
 use app\admin\controller\ApiCommon;
+use app\ledger\logic\LedgerLogic;
+use app\ledger\logic\NotifyService;
 use think\Hook;
 use think\Request;
 
@@ -54,6 +56,11 @@ class Record extends ApiCommon
         if (empty($param['content'])) {
             return resultArray(['error' => 'Content is required']);
         }
+        $ledgerLogic = new LedgerLogic();
+        $param['content'] = $ledgerLogic->sanitizeProgressContent($param['content']);
+        if ($param['content'] === '') {
+            return resultArray(['error' => 'Content is required']);
+        }
         $model = model('CustomerLedger');
         $userInfo = $this->userInfo;
         $ledger = $model->getAccessibleById($param['ledger_id'], $userInfo['id']);
@@ -87,6 +94,16 @@ class Record extends ApiCommon
 
         $model->addProgressRecord($param['ledger_id'], $ledger['customer_id'], $param['content'], $oldStatus, $newStatus, $userInfo['id']);
         $this->addLedgerActivity($param['ledger_id'], $ledger['customer_id'], $param['content'], $userInfo['id']);
+        $notifyService = new NotifyService();
+        $notifyService->notify(NotifyService::EVENT_PROGRESS_ADDED, (int)$param['ledger_id'], $userInfo['id'], [
+            'content' => $param['content']
+        ]);
+        if (!empty($param['new_status']) && $newStatus !== $oldStatus) {
+            $notifyService->notify(NotifyService::EVENT_STATUS_CHANGED, (int)$param['ledger_id'], $userInfo['id'], [
+                'old_status' => $oldStatus,
+                'new_status' => $newStatus
+            ]);
+        }
         return resultArray(['data' => 'Record added']);
     }
 

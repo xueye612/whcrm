@@ -38,6 +38,7 @@ import 'element-ui/lib/theme-chalk/index.css'
 import 'el-bigdata-table'
 
 import '@/styles/index.scss' // global css
+import '@/styles/mobile-route.scss'
 import '@/styles/finance-dialog.css' // finance dialog global styles
 import '@/styles/finance-type-dialog.css' // finance type dialog global styles
 

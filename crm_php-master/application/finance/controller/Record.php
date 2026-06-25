@@ -54,9 +54,9 @@ class Record extends ApiCommon
         if (empty($param['id'])) {
             return resultArray(['error' => '参数错误']);
         }
-        $data = $model->getDataById($param['id']);
+        $data = $model->getAccessibleById($param['id'], (int)($this->userInfo['id'] ?? 0));
         if (!$data) {
-            return resultArray(['error' => $model->getError()]);
+            return resultArray(['error' => $model->getError() ?: '无权限']);
         }
         return resultArray(['data' => $data]);
     }
@@ -169,7 +169,10 @@ class Record extends ApiCommon
         if (!$old) {
             return resultArray(['error' => '数据不存在']);
         }
-
+        $userId = (int)($this->userInfo['id'] ?? 0);
+        if (!$model->isRecordAccessible($recordId, $userId)) {
+            return resultArray(['error' => '无权限']);
+        }
         if (!empty($param['plan_id'])) {
             $plan = db('finance_plan')->where('plan_id', $param['plan_id'])->find();
             if (!$plan) {
@@ -210,12 +213,18 @@ class Record extends ApiCommon
     public function delete()
     {
         $planModel = model('FinancePlan');
+        $model = model('FinanceRecord');
         $param = $this->param;
         if (empty($param['id'])) {
             return resultArray(['error' => '参数错误']);
         }
         $ids = is_array($param['id']) ? $param['id'] : [$param['id']];
-
+        $userId = (int)($this->userInfo['id'] ?? 0);
+        foreach ($ids as $id) {
+            if (!$model->isRecordAccessible($id, $userId)) {
+                return resultArray(['error' => '无权限']);
+            }
+        }
         $planIds = db('finance_record')->where('record_id', 'in', $ids)->column('plan_id');
         $res = db('finance_record')->where('record_id', 'in', $ids)->delete();
         if ($res) {

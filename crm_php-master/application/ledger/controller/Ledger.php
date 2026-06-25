@@ -7,14 +7,21 @@ namespace app\ledger\controller;
 use app\admin\controller\ApiCommon;
 use app\work\traits\WorkAuthTrait;
 use app\admin\logic\DingTalkLogic;
+use app\ledger\logic\LedgerLogic;
+use app\ledger\logic\NotifyService;
 use think\Hook;
 use think\Request;
 
 class Ledger extends ApiCommon
 {
     use WorkAuthTrait;
+
+    /** @var LedgerLogic */
+    protected $ledgerLogic;
+
     public function _initialize()
     {
+        $this->ledgerLogic = new LedgerLogic();
         $action = [
             'permission' => [],
             'allow' => ['excelexport']
@@ -74,9 +81,13 @@ class Ledger extends ApiCommon
         $closeReason = $this->normalizeReplyContent($param['close_reason'] ?? '');
         unset($param['close_reason']);
 
-        $relationError = $this->normalizeRelation($param);
+        $relationError = $this->ledgerLogic->normalizeRelation($param);
         if ($relationError) {
             return resultArray(['error' => $relationError]);
+        }
+        $contractAccessError = $this->ledgerLogic->assertContractAccessible($param['contract_id'], $userInfo['id']);
+        if ($contractAccessError) {
+            return resultArray(['error' => $contractAccessError]);
         }
         if (empty($param['title'])) {
             return resultArray(['error' => '请填写反馈问题']);
@@ -86,7 +97,7 @@ class Ledger extends ApiCommon
         }
         $this->normalizeProjectFields($param);
 
-        $allowedCategory = $this->getAllowedCategories();
+        $allowedCategory = $this->ledgerLogic->getAllowedCategories();
         $allowedStatus = ['待处理', '处理中', '待验证', '待发布', '已完成', '已关闭'];
         if (!empty($param['category']) && !in_array($param['category'], $allowedCategory)) {
             return resultArray(['error' => '问题分类不合法']);
@@ -154,6 +165,12 @@ class Ledger extends ApiCommon
                 $model->addProgressRecord($ledgerId, $param['customer_id'], '已生成项目任务', '', $param['status'], $userInfo['id']);
                 $this->addLedgerActivity($ledgerId, $param['customer_id'], '已生成项目任务', $userInfo['id'], 1);
             }
+            $notifyService = new NotifyService();
+            $notifyService->notify(NotifyService::EVENT_CREATED, $ledgerId, $userInfo['id']);
+            $handlerId = (int)($param['handler_user_id'] ?? 0);
+            if ($handlerId > 0 && $handlerId !== (int)$userInfo['id']) {
+                $notifyService->notify(NotifyService::EVENT_ASSIGNED, $ledgerId, $userInfo['id']);
+            }
             return resultArray(['data' => '添加成功']);
         }
         return resultArray(['error' => '添加失败']);
@@ -180,7 +197,7 @@ class Ledger extends ApiCommon
         if (!$oldData) {
             return resultArray(['error' => '无权限']);
         }
-        $allowedCategory = $this->getAllowedCategories();
+        $allowedCategory = $this->ledgerLogic->getAllowedCategories();
         $allowedStatus = ['待处理', '处理中', '待验证', '待发布', '已完成', '已关闭'];
         if (!empty($param['category']) && !in_array($param['category'], $allowedCategory)) {
             return resultArray(['error' => '问题分类不合法']);
@@ -195,9 +212,13 @@ class Ledger extends ApiCommon
         }
 
         if (array_key_exists('customer_id', $param) || array_key_exists('business_id', $param) || array_key_exists('contract_id', $param)) {
-            $relationError = $this->normalizeRelation($param);
+            $relationError = $this->ledgerLogic->normalizeRelation($param);
             if ($relationError) {
                 return resultArray(['error' => $relationError]);
+            }
+            $contractAccessError = $this->ledgerLogic->assertContractAccessible($param['contract_id'], $userInfo['id']);
+            if ($contractAccessError) {
+                return resultArray(['error' => $contractAccessError]);
             }
         }
 
@@ -289,6 +310,20 @@ class Ledger extends ApiCommon
                 $this->addLedgerActivity($ledgerId, $oldData['customer_id'], '已生成项目任务', $userInfo['id'], 1);
             }
             $this->syncLedgerTaskOnUpdate($ledgerId, $oldData, $param, $mergedData, $userInfo);
+            $notifyService = new NotifyService();
+            if (array_key_exists('handler_user_id', $param)) {
+                $oldHandlerId = (int)($oldData['handler_user_id'] ?? 0);
+                $newHandlerId = (int)($mergedData['handler_user_id'] ?? 0);
+                if ($newHandlerId > 0 && $newHandlerId !== $oldHandlerId) {
+                    $notifyService->notify(NotifyService::EVENT_ASSIGNED, $ledgerId, $userInfo['id']);
+                }
+            }
+            if (array_key_exists('status', $param) && ($param['status'] ?? '') != ($oldData['status'] ?? '')) {
+                $notifyService->notify(NotifyService::EVENT_STATUS_CHANGED, $ledgerId, $userInfo['id'], [
+                    'old_status' => $oldData['status'] ?? '',
+                    'new_status' => $param['status'] ?? ''
+                ]);
+            }
             return resultArray(['data' => '编辑成功']);
         }
         return resultArray(['error' => '编辑失败']);

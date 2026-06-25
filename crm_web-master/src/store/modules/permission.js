@@ -3,6 +3,7 @@ import {
 } from '@/router'
 import Vue from 'vue'
 import { adminGroupsTypeListAPI } from '@/api/admin/role'
+import { resolveDefaultHomePath } from '@/utils/mobileClient'
 
 /**
  *
@@ -176,7 +177,7 @@ const perfectRouter = function(authInfo, result) {
     if (redirect || topRedirect) {
       addRouter.push({
         path: '/',
-        redirect: topRedirect || redirect,
+        redirect: resolveDefaultHomePath(topRedirect || redirect, authInfo),
         hidden: true
       })
     }

@@ -124,10 +124,10 @@ export default [
       permissions: ['ledger', 'ledger', 'index']
     }),
     children: [{
-      path: 'ledger', // 客户台账
+      path: 'ledger', // 台账
       component: () => import('@/views/crm/ledger'),
       meta: {
-        title: '客户台账',
+        title: '台账',
         icon: 'record'
       }
     }]
@@ -144,7 +144,7 @@ export default [
       path: 'finance',
       component: () => import('@/views/finance/RecordPage'),
       meta: {
-        title: '收支管理',
+        title: '收支',
         icon: 'money',
         permissionList: [
           ['finance', 'type', 'index'],

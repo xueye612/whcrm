@@ -1,17 +1,79 @@
 <!DOCTYPE html>
 <html>
-
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1.0">
+  <meta name="viewport" content="width=device-width,initial-scale=1.0,viewport-fit=cover">
   <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1" />
   <title>CRM</title>
+  <style>
+    @media (max-width: 768px) {
+      html,
+      body,
+      #app {
+        min-width: 0 !important;
+        overflow-x: hidden !important;
+        margin: 0 !important;
+        padding: 0 !important;
+      }
+    }
+    html.is-mobile-route,
+    body.is-mobile-route {
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      font-size: 16px;
+      -webkit-text-size-adjust: 100%;
+    }
+    html.is-mobile-route #app {
+      min-width: 0 !important;
+      min-height: 0 !important;
+      overflow: hidden;
+    }
+  </style>
+  <script>
+    (function () {
+      var path = (location.hash || '').replace(/^#/, '') || location.pathname || ''
+      if (path.indexOf('/m') !== 0) return
+
+      document.documentElement.classList.add('is-mobile-route')
+      document.body.classList.add('is-mobile-route')
+
+      function syncMobileViewport() {
+        var w = Math.round(window.innerWidth)
+        var h = Math.round(window.innerHeight)
+        if (window.visualViewport && window.visualViewport.width > 0) {
+          w = Math.round(window.visualViewport.width)
+          h = Math.round(window.visualViewport.height)
+        }
+        var cssW = w + 'px'
+        var cssH = h + 'px'
+        document.documentElement.style.setProperty('--mvw', cssW)
+        document.documentElement.style.setProperty('--mvh', cssH)
+        document.documentElement.style.width = '100%'
+        document.documentElement.style.maxWidth = cssW
+        document.documentElement.style.overflowX = 'hidden'
+        document.body.style.width = '100%'
+        document.body.style.maxWidth = cssW
+        document.body.style.overflowX = 'hidden'
+        document.body.style.margin = '0'
+        var app = document.getElementById('app')
+        if (app) {
+          app.style.minWidth = '0'
+          app.style.width = '100%'
+          app.style.maxWidth = cssW
+          app.style.overflow = 'hidden'
+        }
+      }
+
+      syncMobileViewport()
+      window.addEventListener('resize', syncMobileViewport)
+      window.addEventListener('orientationchange', syncMobileViewport)
+    })()
+  </script>
   <script src="./static/client.js"></script>
 </head>
-
 <body>
   <div id="app"></div>
   <!-- built files will be auto injected -->
 </body>
-
 </html>

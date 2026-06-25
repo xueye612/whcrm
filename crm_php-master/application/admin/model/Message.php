@@ -265,6 +265,18 @@ class Message extends Common
      * 盘点审批通过
      */
     const INVENTORY_PASS = 56;
+    /**
+     * 台账指派
+     */
+    const LEDGER_ASSIGNED = 57;
+    /**
+     * 台账状态变更
+     */
+    const LEDGER_STATUS = 58;
+    /**
+     * 台账进度
+     */
+    const LEDGER_PROGRESS = 59;
     
     /**
      * 消息类型
@@ -376,6 +388,15 @@ class Message extends Common
         32 => [
             'template' => '{from_user} 将您添加为线索 {title} 的成员。',
         ],
+        57 => [
+            'template' => '{from_user} 指派台账 {title} 给您：{summary}，请及时查看。',
+        ],
+        58 => [
+            'template' => '{from_user} 更新台账 {title} 状态：{summary}，请及时查看。',
+        ],
+        59 => [
+            'template' => '{from_user} 在台账 {title} 添加进度：{summary}，请及时查看。',
+        ],
     ];
 
     /**
@@ -423,6 +444,9 @@ class Message extends Common
             self::BUSINESS_PASS,
             self::CUSTOMER_PASS,
             self::CONTRACT_END,
+            self::LEDGER_ASSIGNED,
+            self::LEDGER_STATUS,
+            self::LEDGER_PROGRESS,
         ],
         'jxc' => [
             self::PURCHASE_TO_DO,
@@ -638,6 +662,11 @@ class Message extends Common
             case self::INVENTORY_REJECT:
             case self::INVENTORY_PASS:
                 return PaymentModel::where(['inventory_id' => $data['action_id']])->value('inventory_number') ?: '';
+
+            case self::LEDGER_ASSIGNED:
+            case self::LEDGER_STATUS:
+            case self::LEDGER_PROGRESS:
+                return db('customer_ledger')->where(['ledger_id' => $data['action_id']])->value('title') ?: '';
 
         }
 

@@ -4,12 +4,13 @@
   "description": "",
   "author": "5kcrm <service@5kcrm.com>",
   "scripts": {
-    "dev": "webpack-dev-server --inline --progress --config build/webpack.dev.conf.js",
+    "dev": "node --openssl-legacy-provider ./node_modules/webpack-dev-server/bin/webpack-dev-server.js --inline --progress --config build/webpack.dev.conf.js",
     "start": "npm run dev",
-    "build": "node build/build.js",
+    "build": "node --openssl-legacy-provider build/build.js",
     "build:report": "npm_config_report=true npm run build",
     "lint": "eslint --ext .js,.vue src --fix",
-    "test": "npm run lint"
+    "test": "npm run lint",
+    "test:unit": "node tests/ledgerCompletion.test.js && node tests/ledgerFormat.test.js"
   },
   "dependencies": {
     "@chenfengyuan/vue-qrcode": "^1.0.2",
@@ -110,8 +111,8 @@
     "webpack-merge": "4.1.4"
   },
   "engines": {
-    "node": ">= 6.0.0",
-    "npm": ">= 3.0.0"
+    "node": ">=18 <19",
+    "npm": ">= 8.0.0"
   },
   "browserslist": [
     "> 1%",

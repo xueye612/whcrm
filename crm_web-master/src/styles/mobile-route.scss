@@ -1,0 +1,109 @@
+@media (max-width: 768px) {
+  html,
+  body,
+  #app {
+    min-width: 0 !important;
+    overflow-x: hidden !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  #app > .router-view {
+    min-width: 0 !important;
+    overflow: hidden !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+}
+
+html.is-mobile-route,
+body.is-mobile-route {
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  font-size: 16px;
+  -webkit-text-size-adjust: 100%;
+  touch-action: pan-y;
+}
+
+body.is-mobile-route #app,
+body.is-mobile-route #app > .router-view {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+body.is-mobile-route .mobile-layout,
+body.is-mobile-route .mobile-layout__inner,
+body.is-mobile-route .mobile-layout__header,
+body.is-mobile-route .mobile-layout__body,
+body.is-mobile-route .mobile-layout__tabbar {
+  box-sizing: border-box;
+  min-width: 0;
+}
+
+body.is-mobile-route .mobile-layout__body > * {
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+body.is-mobile-route .el-form-item {
+  margin-right: 0;
+}
+
+body.is-mobile-route .el-form-item__content {
+  display: block;
+  max-width: 100%;
+  margin-left: 0 !important;
+}
+
+body.is-mobile-route .el-input,
+body.is-mobile-route .el-textarea,
+body.is-mobile-route .el-select {
+  display: block;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+body.is-mobile-route .el-input__inner,
+body.is-mobile-route .el-textarea__inner {
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+body.is-mobile-route .el-input-group {
+  max-width: 100%;
+}
+
+body.is-mobile-route .el-loading-mask {
+  position: absolute;
+  inset: 0;
+  left: 0;
+  right: 0;
+  width: auto !important;
+  max-width: 100%;
+}
+
+body.is-mobile-route img,
+body.is-mobile-route video,
+body.is-mobile-route table {
+  max-width: 100%;
+}
+
+@supports (-webkit-touch-callout: none) {
+  body.is-mobile-route .el-input__inner,
+  body.is-mobile-route .el-textarea__inner {
+    box-sizing: border-box !important;
+    font-size: 16px !important;
+  }
+
+  body.is-mobile-route .el-input--suffix .el-input__inner {
+    padding-right: 36px;
+  }
+
+  body.is-mobile-route .el-input__suffix {
+    right: 8px;
+  }
+}

@@ -301,6 +301,51 @@ class FinanceRecord extends Common
         return $data;
     }
 
+    public function getAccessibleById($id, $userId)
+    {
+        $data = $this->getDataById($id);
+        if (!$data) {
+            return false;
+        }
+        if (!$this->isRecordAccessible($id, $userId)) {
+            $this->error = '无权限';
+            return false;
+        }
+        return $data;
+    }
+
+    public function isRecordAccessible($recordId, $userId)
+    {
+        $recordId = (int)$recordId;
+        $userId = (int)$userId;
+        if ($recordId <= 0 || $userId <= 0) {
+            return false;
+        }
+        if ($this->isAdminUser($userId)) {
+            return true;
+        }
+
+        $record = db('finance_record')->where('record_id', $recordId)->find();
+        if (!$record) {
+            return false;
+        }
+
+        $financeAuthEnabled = $this->teamHasFinanceAuth();
+        $map = [
+            'contract_id' => (int)($record['contract_id'] ?? 0),
+            'business_id' => (int)($record['business_id'] ?? 0),
+            'customer_id' => (int)($record['customer_id'] ?? 0),
+        ];
+        $scopeWhere = $this->buildFinanceScopeWhere($map, $userId, $financeAuthEnabled);
+        if ($scopeWhere === false) {
+            return false;
+        }
+
+        $where = array_merge(['record.record_id' => $recordId], $scopeWhere);
+        $count = Db::name($this->name)->alias('record')->where($where)->count();
+        return $count > 0;
+    }
+
     /**
      * 标准化请求携带的 map 参数，保证 direction 始终合法
      */
