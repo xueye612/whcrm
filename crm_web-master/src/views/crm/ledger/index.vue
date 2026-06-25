@@ -435,57 +435,57 @@
               <span class="header-id">#{{ detail.ledger_id }}</span>
             </div>
             <div class="header-right">
-              <div class="header-item" title="客户">
+              <div class="header-meta-chip" title="客户">
                 <i class="el-icon-office-building"/>
                 <span class="header-value">{{ detail.customer_name || '—' }}</span>
               </div>
-              <div class="header-item" title="反馈人">
+              <div class="header-meta-chip" title="反馈人">
                 <i class="el-icon-user"/>
                 <span class="header-value">{{ detail.feedback_user || '—' }}</span>
-              </div>
-              <div class="header-item">
-                <el-tag
-                  :type="statusTagType(detail.status)"
-                  :class="statusTagClass(detail.status)"
-                  size="small">
-                  {{ detail.status || '—' }}
-                </el-tag>
               </div>
             </div>
           </div>
           <div class="detail-summary-card">
             <div class="detail-title-label">反馈问题</div>
-            <div class="detail-title-value">{{ detail.title || '—' }}</div>
+            <div class="detail-title-line">
+              <div class="detail-title-value">{{ detail.title || '—' }}</div>
+              <el-tag
+                :type="statusTagType(detail.status)"
+                :class="statusTagClass(detail.status)"
+                size="small"
+                effect="plain"
+                class="detail-title-status">
+                {{ detail.status || '—' }}
+              </el-tag>
+            </div>
             <div v-if="detail.business_name || detail.contract_name || detail.contract_num" class="detail-relation-line">
               <el-tag v-if="detail.business_name" type="warning" size="mini" effect="plain">商机</el-tag>
               <el-tag v-else-if="detail.contract_name || detail.contract_num" size="mini" effect="plain">合同</el-tag>
               <span>{{ relationDetailName(detail) || '—' }}</span>
             </div>
           </div>
-          <div class="kv-grid detail-kv-grid">
-            <div class="kv-item">
-              <div class="kv-label">问题分类</div>
-              <div class="kv-value">{{ detail.category || '—' }}</div>
-            </div>
-            <div class="kv-item">
-              <div class="kv-label">反馈渠道</div>
-              <div class="kv-value">{{ detail.feedback_channel || '微信' }}</div>
-            </div>
-            <div class="kv-item">
-              <div class="kv-label">反馈人</div>
-              <div class="kv-value">{{ detail.feedback_user || '—' }}</div>
-            </div>
-            <div class="kv-item">
-              <div class="kv-label">反馈时间</div>
-              <div class="kv-value">{{ (detail.feedback_time || detail.register_time) ? (detail.feedback_time || detail.register_time).slice(0, 16) : '—' }}</div>
-            </div>
-            <div class="kv-item">
-              <div class="kv-label">登记人</div>
-              <div class="kv-value">{{ detail.register_user_name || '—' }}</div>
-            </div>
-            <div class="kv-item">
-              <div class="kv-label">处理人</div>
-              <div class="kv-value">{{ detail.handler_user_name || '—' }}</div>
+          <div class="detail-meta-panel">
+            <div class="kv-grid detail-kv-grid">
+              <div class="kv-item">
+                <div class="kv-label">问题分类</div>
+                <div class="kv-value">{{ detail.category || '—' }}</div>
+              </div>
+              <div class="kv-item">
+                <div class="kv-label">反馈渠道</div>
+                <div class="kv-value">{{ detail.feedback_channel || '微信' }}</div>
+              </div>
+              <div class="kv-item">
+                <div class="kv-label">反馈时间</div>
+                <div class="kv-value">{{ (detail.feedback_time || detail.register_time) ? (detail.feedback_time || detail.register_time).slice(0, 16) : '—' }}</div>
+              </div>
+              <div class="kv-item">
+                <div class="kv-label">登记人</div>
+                <div class="kv-value">{{ detail.register_user_name || '—' }}</div>
+              </div>
+              <div class="kv-item">
+                <div class="kv-label">处理人</div>
+                <div class="kv-value">{{ detail.handler_user_name || '—' }}</div>
+              </div>
             </div>
           </div>
           <div v-if="detail.status === '已完成'" class="detail-completion-card">
@@ -513,12 +513,11 @@
           </div>
         </section>
 
-        <section class="detail-section">
+        <section class="detail-section detail-section-desc">
           <div class="section-title">描述信息</div>
           <div class="text-block">
-            <div class="text-label">问题描述</div>
             <div v-if="detail.description" class="text-value rich-text rich-html" v-html="detail.description" />
-            <div v-else class="text-value">—</div>
+            <div v-else class="text-value text-empty">暂无描述</div>
           </div>
         </section>
 
@@ -2140,20 +2139,26 @@ export default {
 }
 
 .ledger-detail-dialog ::v-deep .el-dialog__header {
-  padding: 16px 20px;
+  padding: 14px 18px;
   border-bottom: 1px solid #ebeef5;
   background: #fff;
 }
 
+.ledger-detail-dialog ::v-deep .el-dialog__title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #303133;
+}
+
 .ledger-detail-dialog ::v-deep .el-dialog__body {
-  padding: 14px;
-  background-color: #f5f7fa;
-  max-height: calc(100vh - 156px);
+  padding: 12px;
+  background: linear-gradient(180deg, #f3f6fb 0%, #f5f7fa 100%);
+  max-height: calc(100vh - 152px);
   overflow-y: auto;
 }
 
 .ledger-detail-dialog ::v-deep .el-dialog__footer {
-  padding: 10px 20px;
+  padding: 10px 18px;
   border-top: 1px solid #ebeef5;
   background: #fff;
 }
@@ -2161,7 +2166,235 @@ export default {
 .ledger-detail {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
+}
+
+.ledger-detail-dialog .detail-section {
+  padding: 10px 12px;
+  border: 1px solid #ebeef5;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+.ledger-detail-dialog .section-title {
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 8px;
+  padding-left: 10px;
+  border-left-width: 3px;
+  line-height: 1.2;
+}
+
+.ledger-detail-dialog .header-flex {
+  margin-bottom: 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #f0f2f5;
+}
+
+.ledger-detail-dialog .header-left {
+  font-weight: 600;
+}
+
+.ledger-detail-dialog .header-right {
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.ledger-detail-dialog .header-meta-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 220px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: #f4f7fc;
+  border: 1px solid #e4ebf5;
+  color: #606266;
+  font-size: 13px;
+  line-height: 1.3;
+}
+
+.ledger-detail-dialog .header-meta-chip i {
+  color: #7a869a;
+  font-size: 14px;
+}
+
+.ledger-detail-dialog .header-value {
+  max-width: 168px;
+  font-weight: 500;
+  color: #303133;
+}
+
+.ledger-detail-dialog .detail-summary-card {
+  margin-bottom: 8px;
+  padding: 10px 12px;
+  border: 1px solid #e3eaf3;
+  border-radius: 8px;
+  background: linear-gradient(180deg, #fbfcfe 0%, #f6f9fc 100%);
+}
+
+.ledger-detail-dialog .detail-title-label {
+  margin-bottom: 4px;
+  color: #909399;
+  font-size: 12px;
+  letter-spacing: 0.2px;
+}
+
+.ledger-detail-dialog .detail-title-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.ledger-detail-dialog .detail-title-value {
+  flex: 1;
+  min-width: 0;
+  color: #1f2d3d;
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+.ledger-detail-dialog .detail-title-status {
+  flex: 0 0 auto;
+}
+
+.ledger-detail-dialog .detail-relation-line {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed #e4ebf5;
+  font-size: 13px;
+  color: #606266;
+}
+
+.ledger-detail-dialog .detail-meta-panel {
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: #f8fafc;
+  border: 1px solid #edf1f7;
+}
+
+.ledger-detail-dialog .detail-kv-grid {
+  gap: 8px 16px;
+}
+
+.ledger-detail-dialog .kv-item {
+  gap: 3px;
+  min-width: 0;
+}
+
+.ledger-detail-dialog .kv-label {
+  font-size: 12px;
+  color: #909399;
+}
+
+.ledger-detail-dialog .kv-value {
+  font-size: 13px;
+  font-weight: 500;
+  color: #303133;
+  line-height: 1.4;
+}
+
+.ledger-detail-dialog .detail-completion-card,
+.ledger-detail-dialog .detail-closed-card {
+  margin-top: 8px;
+  padding: 10px 12px;
+  border-radius: 8px;
+}
+
+.ledger-detail-dialog .detail-completion-reply {
+  margin-top: 8px;
+  padding-top: 8px;
+}
+
+.ledger-detail-dialog .detail-section-desc .section-title {
+  margin-bottom: 6px;
+}
+
+.ledger-detail-dialog .text-block {
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #fafbfd;
+}
+
+.ledger-detail-dialog .text-value {
+  font-size: 13px;
+  line-height: 1.6;
+  color: #4a5568;
+}
+
+.ledger-detail-dialog .text-empty {
+  color: #c0c4cc;
+}
+
+.ledger-detail-dialog .rich-html ::v-deep p {
+  margin: 0 0 6px;
+}
+
+.ledger-detail-dialog .rich-html ::v-deep p:last-child {
+  margin-bottom: 0;
+}
+
+.ledger-detail-dialog .record-timeline {
+  padding: 2px 0 0 2px;
+}
+
+.ledger-detail-dialog .record-timeline ::v-deep .el-timeline-item {
+  padding-bottom: 12px;
+}
+
+.ledger-detail-dialog .record-timeline ::v-deep .el-timeline-item__timestamp {
+  font-size: 12px;
+  color: #909399;
+  line-height: 1.35;
+}
+
+.ledger-detail-dialog .record-content {
+  padding: 10px 12px;
+  border-radius: 8px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03);
+}
+
+.ledger-detail-dialog .record-user {
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 5px;
+}
+
+.ledger-detail-dialog .record-text {
+  font-size: 13px;
+  line-height: 1.55;
+  margin-bottom: 6px;
+}
+
+.ledger-detail-dialog .record-status {
+  background: #f4f6f8;
+}
+
+.ledger-detail-dialog .record-actions-section {
+  padding: 12px 14px 14px;
+}
+
+.ledger-detail-dialog .record-input {
+  margin-bottom: 12px;
+}
+
+.ledger-detail-dialog .record-input ::v-deep .el-textarea__inner {
+  min-height: 96px !important;
+  padding: 10px 12px;
+  border-radius: 8px;
+}
+
+.ledger-detail-dialog .record-timeline .is-current .record-content::before {
+  top: 12px;
+}
+
+.ledger-detail-dialog ::v-deep .status-tag-release.is-plain {
+  color: #8e44ad;
+  background-color: #f4ecf7;
+  border-color: #e8daef;
 }
 
 .detail-section {
