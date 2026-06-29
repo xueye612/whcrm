@@ -6,9 +6,9 @@
     class="ledger-page">
     <el-alert
       v-show="showMobileHint"
+      :closable="true"
       class="mobile-ledger-hint"
       type="info"
-      :closable="true"
       show-icon
       title="当前为移动设备，已推荐使用移动台账">
       <router-link to="/m/ledger">进入移动台账</router-link>
@@ -333,7 +333,7 @@
 
         <div class="ledger-form-section section-core">
           <div class="section-title">问题内容</div>
-          <el-form-item prop="title" class="form-item-strong" :show-message="false">
+          <el-form-item :show-message="false" prop="title" class="form-item-strong">
             <span slot="label" class="title-label-row">
               <span class="title-label-text">问题标题</span>
               <span v-if="titleErrorMsg" class="title-label-error">{{ titleErrorMsg }}</span>
@@ -509,8 +509,8 @@
             v-model.trim="recordForm.content"
             :rows="4"
             :disabled="isRecordLocked"
-            type="textarea"
             :placeholder="recordInputPlaceholder"
+            type="textarea"
             class="record-input" />
           <div class="record-actions">
             <el-select
@@ -736,15 +736,19 @@ export default {
     '$route.query.customer_id'() {
       this.applyRouteQuery(true)
     },
+    '$route.query.ledger_id'() {
+      this.applyRouteQuery(true)
+    },
     canRead(val) {
-      if (val && this.list.length === 0) {
+      if (val && !this.applyRouteQuery(true) && this.list.length === 0) {
         this.getList()
       }
     }
   },
   created() {
     if (isMobileClient() && !this.$route.query.desktop) {
-      this.$router.replace('/m/ledger')
+      const ledgerId = this.$route.query.ledger_id
+      this.$router.replace(ledgerId ? `/m/ledger/${ledgerId}` : '/m/ledger')
       return
     }
     this.filters.feedback_date = this.getDefaultFilterDateRange()
@@ -978,6 +982,15 @@ export default {
       this.filters.handler_user_id = first ? (first.id || first.user_id) : ''
     },
     applyRouteQuery(needFetch) {
+      const ledgerId = this.$route.query.ledger_id
+      if (ledgerId) {
+        if (this.canRead && needFetch) {
+          this.page = 1
+          this.getList()
+          this.openDetailById(ledgerId)
+        }
+        return true
+      }
       const customerId = this.$route.query.customer_id
       if (customerId) {
         this.filters.customer_id = String(customerId)
@@ -990,6 +1003,31 @@ export default {
         return true
       }
       return false
+    },
+    openDetailById(ledgerId) {
+      const id = Number(ledgerId)
+      if (!id) return
+      const row = { ledger_id: id }
+      this.detail = { ...row }
+      this.taskLink = {
+        work_id: '',
+        class_id: ''
+      }
+      this.detailVisible = true
+      this.recordOriginStatus = ''
+      this.recordForm = { content: '', new_status: '' }
+      this.recordList = []
+      this.loadRecords(id)
+      ledgerReadAPI({ id }).then(res => {
+        this.detail = { ...row, ...(res.data || {}) }
+        this.detail.description = this.normalizeHtmlImages(this.detail.description)
+        this.taskLink = {
+          work_id: this.detail.work_id || '',
+          class_id: this.detail.class_id || ''
+        }
+        this.fetchClassOptions(this.taskLink.work_id)
+        this.recordOriginStatus = this.detail.status || ''
+      }).catch(() => {})
     },
     clearRouteCustomer() {
       if (this.$route.query.customer_id) {

@@ -43,6 +43,12 @@ export const constantRouterMap = [
     hidden: true
   },
   {
+    path: '/ledger/redirect/:id?',
+    name: 'ledger-device-redirect',
+    component: () => import('@/views/ledger/DeviceLedgerRedirect'),
+    hidden: true
+  },
+  {
     path: '/404',
     component: () => import('@/views/404'),
     hidden: true

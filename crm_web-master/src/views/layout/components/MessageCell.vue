@@ -107,6 +107,11 @@ export default {
           icon: 'wk wk-invoice',
           color: '#6995FF',
           type: 'invoice'
+        },
+        ledger: {
+          icon: 'wk wk-record',
+          color: '#6995FF',
+          type: 'ledger'
         }
       }
 
@@ -141,6 +146,8 @@ export default {
           key = 'invoice'
         } else if ([10].includes(this.data.type)) {
           key = 'schedule'
+        } else if ([57, 58, 59].includes(this.data.type)) {
+          key = 'ledger'
         }
       }
 
@@ -190,7 +197,10 @@ export default {
         25: `${this.data.user_name}拒绝您的`,
         26: `${this.data.user_name}已经审核通过您的`,
         24: `${this.data.user_name}提交了`,
-        27: `${this.data.user_name}项目任务导入数据，${this.getImportContent(this.data)}`
+        27: `${this.data.user_name}项目任务导入数据，${this.getImportContent(this.data)}`,
+        57: `${this.data.user_name}指派台账`,
+        58: `${this.data.user_name}更新台账`,
+        59: `${this.data.user_name}在台账`
       }[this.data.type]
     },
 
@@ -266,7 +276,10 @@ export default {
         25: `发票审批，拒绝理由：“${this.data.content}”，请及时处理`,
         26: `发票，请及时查看`,
         24: `发票审批，请及时处理`,
-        27: ``
+        27: ``,
+        57: `给您，请及时查看`,
+        58: `状态，请及时查看`,
+        59: `添加进度，请及时查看`
       }[this.data.type]
     }
   },

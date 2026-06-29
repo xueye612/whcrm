@@ -179,6 +179,6 @@ class NotifyService
         if ($domain === '') {
             return '';
         }
-        return rtrim($domain, '/') . '/#/m/ledger/' . (int)$ledgerId;
+        return rtrim($domain, '/') . '/#/ledger/redirect/' . (int)$ledgerId;
     }
 }

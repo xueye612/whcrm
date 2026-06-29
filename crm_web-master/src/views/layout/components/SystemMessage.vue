@@ -386,6 +386,11 @@ export default {
      * 查看详情
      */
     checkCRMDetail(type, id, dataIndex, data) {
+      if (type === 'ledger') {
+        this.showDetail = false
+        this.$router.push(`/ledger/redirect/${id}`)
+        return
+      }
       if (type === 'schedule') {
         this.relationID = id
         if (data.content) {
