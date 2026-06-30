@@ -337,6 +337,7 @@
         </section>
       </div>
       <div slot="footer" class="dialog-footer">
+        <el-button icon="el-icon-link" @click="copyCurrentLedgerLink">复制链接</el-button>
         <el-button @click="detailVisible=false">关闭</el-button>
       </div>
     </el-dialog>
@@ -364,6 +365,7 @@ import {
   ledgerRecordAddAPI
 } from '@/api/ledger/ledger'
 import { isCompletedLedgerStatus, isClosedLedgerStatus, normalizeCompletionFields } from '@/utils/ledgerCompletion'
+import { copyLedgerShareLink } from '@/utils/ledgerLink'
 
 export default {
   name: 'RelativeLedger',
@@ -597,6 +599,16 @@ export default {
       if (!this.ledgerDetail || !this.ledgerDetail.task_id) return
       const url = `/#/project/workbench?task_id=${this.ledgerDetail.task_id}`
       window.open(url, '_blank')
+    },
+    copyCurrentLedgerLink() {
+      if (!this.ledgerDetail || !this.ledgerDetail.ledger_id) return
+      copyLedgerShareLink(this.ledgerDetail.ledger_id)
+        .then(() => {
+          this.$message.success('已复制台账链接')
+        })
+        .catch(() => {
+          this.$message.error('复制失败，请手动复制地址')
+        })
     },
     getList() {
       if (!this.canRead) return

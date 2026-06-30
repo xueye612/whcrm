@@ -37,6 +37,13 @@ assert.strictEqual(mobileClient.resolvePostLoginPath('/crm/customer', {}), '/crm
 assert.strictEqual(mobileClient.hasLedgerIndexAuth({ ledger: { ledger: { index: true } } }), true)
 assert.strictEqual(mobileClient.resolvePostLoginPath('', {}), '/')
 
+const ledgerLink = loadModule(path.resolve(__dirname, '../src/utils/ledgerLink.js'))
+assert.strictEqual(ledgerLink.buildLedgerRedirectPath(12), '/ledger/redirect/12')
+assert.strictEqual(
+  ledgerLink.buildLedgerShareUrl(12, { origin: 'https://crm.example.com' }),
+  'https://crm.example.com/#/ledger/redirect/12'
+)
+
 const mobileRouterPath = path.resolve(__dirname, '../src/router/modules/mobile.js')
 const mobileRouterSource = require('fs').readFileSync(mobileRouterPath, 'utf8')
 assert.ok(mobileRouterSource.includes("path: '/m'"))

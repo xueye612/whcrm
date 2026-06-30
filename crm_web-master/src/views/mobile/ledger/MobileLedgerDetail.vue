@@ -5,9 +5,10 @@
         <div class="detail-card__head">
           <h2 class="detail-card__title-text">{{ detail.title }}</h2>
           <span
-            class="detail-card__status"
-            :class="[statusTagClass(detail.status), statusBadgeClass(detail.status)]">{{ detail.status }}</span>
+            :class="[statusTagClass(detail.status), statusBadgeClass(detail.status)]"
+            class="detail-card__status">{{ detail.status }}</span>
         </div>
+        <button type="button" class="detail-share-button" @click="copyCurrentLedgerLink">复制链接</button>
         <div class="detail-row"><span>客户</span><span>{{ detail.customer_name || '-' }}</span></div>
         <div class="detail-row"><span>合同</span><span>{{ detail.contract_name || detail.contract_num || '-' }}</span></div>
         <div class="detail-row"><span>处理人</span><span>{{ detail.handler_user_name || '-' }}</span></div>
@@ -36,8 +37,8 @@
         <div class="detail-card__title">添加进度</div>
         <el-input
           v-model.trim="recordForm.content"
-          type="textarea"
           :rows="3"
+          type="textarea"
           placeholder="记录处理进展" />
         <el-select
           v-model="recordForm.new_status"
@@ -48,8 +49,8 @@
           <el-option v-for="item in statusOptions" :key="item" :label="item" :value="item" />
         </el-select>
         <el-button
-          type="primary"
           :loading="recordSubmitting"
+          type="primary"
           class="detail-submit"
           @click="submitRecord">提交进度</el-button>
       </section>
@@ -72,13 +73,13 @@
         <el-input
           v-if="recordForm.new_status === '已关闭'"
           v-model.trim="recordForm.content"
-          type="textarea"
           :rows="3"
+          type="textarea"
           class="detail-field detail-field--gap"
           placeholder="请填写关闭原因" />
         <el-button
-          type="primary"
           :loading="recordSubmitting"
+          type="primary"
           class="detail-submit"
           @click="submitStatusChange">确认变更</el-button>
       </section>
@@ -101,6 +102,7 @@ import {
   LEDGER_STATUS_OPTIONS
 } from '@/utils/ledgerFormat'
 import { isCompletedLedgerStatus, isClosedLedgerStatus } from '@/utils/ledgerCompletion'
+import { copyLedgerShareLink } from '@/utils/ledgerLink'
 
 export default {
   name: 'MobileLedgerDetail',
@@ -206,8 +208,8 @@ export default {
         this.$message.warning('请填写关闭原因')
         return
       }
-      const content = this.recordForm.content.trim()
-        || `状态变更：${this.detail.status} -> ${this.recordForm.new_status}`
+      const content = this.recordForm.content.trim() ||
+        `状态变更：${this.detail.status} -> ${this.recordForm.new_status}`
       this.submitRecordPayload(content, this.recordForm.new_status)
     },
     submitRecordPayload(content, newStatus) {
@@ -223,6 +225,16 @@ export default {
       }).finally(() => {
         this.recordSubmitting = false
       })
+    },
+    copyCurrentLedgerLink() {
+      if (!this.ledgerId) return
+      copyLedgerShareLink(this.ledgerId)
+        .then(() => {
+          this.$message.success('已复制台账链接')
+        })
+        .catch(() => {
+          this.$message.error('复制失败，请手动复制地址')
+        })
     }
   }
 }
@@ -253,6 +265,17 @@ export default {
   align-items: flex-start;
   gap: 6px;
   margin-bottom: 8px;
+}
+
+.detail-share-button {
+  width: 100%;
+  height: 34px;
+  margin: 4px 0 10px;
+  border: 1px solid #dcdfe6;
+  border-radius: 6px;
+  background: #fff;
+  color: #2362fb;
+  font-size: 14px;
 }
 
 .detail-card__title-text {
