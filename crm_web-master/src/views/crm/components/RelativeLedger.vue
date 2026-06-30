@@ -17,6 +17,7 @@
     </flexbox>
     <el-table
       v-show="list.length >= 0"
+      ref="ledgerTable"
       :data="list"
       :height="tableHeight"
       stripe
@@ -521,8 +522,30 @@ export default {
     this.getList()
     this.fetchLedgerCategoryOptions()
     this.fetchWorkOptions()
+    this.$nextTick(this.updateTableHeight)
+    window.addEventListener('resize', this.updateTableHeight)
+  },
+  beforeDestroy() {
+    window.removeEventListener('resize', this.updateTableHeight)
   },
   methods: {
+    updateTableHeight() {
+      const container = this.$el
+      if (!container) return
+      const head = container.querySelector('.rc-head')
+      const headHeight = head ? head.offsetHeight : 0
+      const style = window.getComputedStyle ? window.getComputedStyle(container) : null
+      const paddingTop = style ? parseFloat(style.paddingTop) || 0 : 0
+      const paddingBottom = style ? parseFloat(style.paddingBottom) || 0 : 0
+      const gap = 15
+      const availableHeight = container.clientHeight - headHeight - paddingTop - paddingBottom - gap
+      this.tableHeight = `${Math.max(400, availableHeight)}px`
+      this.$nextTick(() => {
+        if (this.$refs.ledgerTable && this.$refs.ledgerTable.doLayout) {
+          this.$refs.ledgerTable.doLayout()
+        }
+      })
+    },
     fetchWorkOptions() {
       this.workLoading = true
       workIndexWorkListAPI()

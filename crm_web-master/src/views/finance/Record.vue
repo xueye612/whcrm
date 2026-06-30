@@ -402,6 +402,10 @@ export default {
       type: Boolean,
       default: false
     },
+    disableDefaultDateRange: {
+      type: Boolean,
+      default: false
+    },
     customerDetail: {
       type: Object,
       default: () => ({})
@@ -772,7 +776,7 @@ export default {
         }
       }
     }
-    this.filters.dateRange = this.getDefaultFilterDateRange()
+    this.filters.dateRange = this.getInitialFilterDateRange()
     this.loadRecords()
     if (this.showApiHealth) {
       this.checkApiHealth()
@@ -786,6 +790,9 @@ export default {
         today.clone().startOf('year').format('YYYY-MM-DD'),
         today.format('YYYY-MM-DD')
       ]
+    },
+    getInitialFilterDateRange() {
+      return this.disableDefaultDateRange ? [] : this.getDefaultFilterDateRange()
     },
     getCachedUserInfo() {
       try {
@@ -1313,7 +1320,7 @@ export default {
       this.filters.type_ids = []
       this.filters.direction = ''
       this.filters.payment_method_id = ''
-      this.filters.dateRange = this.getDefaultFilterDateRange()
+      this.filters.dateRange = this.getInitialFilterDateRange()
       this.filters.orderBy = 'occur_date'
       this.filters.handler_user_id = ''
       this.filterHandlerUser = []

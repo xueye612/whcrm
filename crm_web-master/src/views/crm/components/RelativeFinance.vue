@@ -5,6 +5,7 @@
       :customer-id="panelCustomerId"
       :business-id="panelBusinessId"
       :contract-id="panelContractId"
+      :disable-default-date-range="true"
       :hide-customer-filter="true"
       :customer-detail="detail" />
     <div v-else class="empty-state">
