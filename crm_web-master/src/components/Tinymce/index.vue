@@ -7,7 +7,7 @@
     :init="showInit"
     :plugins="showPlugins"
     :toolbar="showToolbar"
-    tinymce-script-src="https://www.72crm.com/npm/tinymce/tinymce.min.js"
+    tinymce-script-src="/static/tinymce/tinymce.min.js"
     v-on="$listeners"
   />
 </template>

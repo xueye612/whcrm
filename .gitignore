@@ -6,3 +6,8 @@ crm_php-master/config/database.php
 crm_web-master/node_modules/
 crm_web-master/dist/
 .cursor
+
+# 开发服务器运行时日志
+crm_web-master/dev-server.log
+crm_web-master/dev-server.err.log
+*.log
