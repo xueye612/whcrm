@@ -112,6 +112,26 @@ return [
     // 【任务】导入模板下载
     'work/task/excelDownload' => ['work/task/excelDownload', ['method' => 'GET']],
 
+    // ===== P0 任务工作流、W/R/K、轻量测试（20260724）=====
+    'work/task/wrkDictionary'      => ['work/task/wrkDictionary', ['method' => 'POST']],
+    'work/task/workflowRead'       => ['work/task/workflowRead', ['method' => 'POST']],
+    'work/task/evaluate'           => ['work/task/evaluate', ['method' => 'POST']],
+    'work/task/startProcess'       => ['work/task/startProcess', ['method' => 'POST']],
+    'work/task/submitAcceptance'   => ['work/task/submitAcceptance', ['method' => 'POST']],
+    'work/task/acceptancePass'     => ['work/task/acceptancePass', ['method' => 'POST']],
+    'work/task/acceptanceReturn'   => ['work/task/acceptanceReturn', ['method' => 'POST']],
+    'work/task/applyRelease'       => ['work/task/applyRelease', ['method' => 'POST']],
+    'work/task/confirmRelease'     => ['work/task/confirmRelease', ['method' => 'POST']],
+    'work/task/customerConfirm'    => ['work/task/customerConfirm', ['method' => 'POST']],
+    'work/task/customerReturn'     => ['work/task/customerReturn', ['method' => 'POST']],
+    'work/task/completeTask'       => ['work/task/completeTask', ['method' => 'POST']],
+    'work/task/setAuxStatus'       => ['work/task/setAuxStatus', ['method' => 'POST']],
+    'work/task/setReleaseExemption'=> ['work/task/setReleaseExemption', ['method' => 'POST']],
+    'work/task/initiateTest'       => ['work/task/initiateTest', ['method' => 'POST']],
+    'work/task/submitTest'         => ['work/task/submitTest', ['method' => 'POST']],
+    'work/task/reviewTest'         => ['work/task/reviewTest', ['method' => 'POST']],
+    'work/task/testList'           => ['work/task/testList', ['method' => 'POST']],
+
 	//【标签】编辑
 	'work/tasklable/update' => ['work/tasklable/update', ['method' => 'POST']],		
 	//【标签】添加

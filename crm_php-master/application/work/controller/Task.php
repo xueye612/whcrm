@@ -15,6 +15,7 @@ use think\Hook;
 use app\admin\controller\ApiCommon;
 use app\admin\model\Message;
 use app\admin\logic\DingTalkLogic;
+use app\work\logic\WorkflowService;
 use think\helper\Time;
 use think\Db;
 
@@ -34,7 +35,7 @@ class Task extends ApiCommon
             'finish_time' => $time,
             'update_time' => $time
         ]);
-        $ledgerModel = model('CustomerLedger');
+        $ledgerModel = new \app\ledger\model\CustomerLedger();
         $oldStatus = $ledger['status'] ?? '';
         $ledgerModel->addProgressRecord($ledger['ledger_id'], $ledger['customer_id'], '任务完成同步', $oldStatus, '已完成', $userId);
         Db::name('crm_activity')->insert([
@@ -71,7 +72,7 @@ class Task extends ApiCommon
             $updateData['finish_time'] = 0;
         }
         Db::name('customer_ledger')->where(['ledger_id' => $ledger['ledger_id']])->update($updateData);
-        $ledgerModel = model('CustomerLedger');
+        $ledgerModel = new \app\ledger\model\CustomerLedger();
         $oldStatus = $ledger['status'] ?? '';
         $content = ((int)$taskStatus === 5) ? '任务完成同步' : '任务回退同步';
         $ledgerModel->addProgressRecord($ledger['ledger_id'], $ledger['customer_id'], $content, $oldStatus, $targetLedgerStatus, $userId);
@@ -102,7 +103,14 @@ class Task extends ApiCommon
                 'index', 'mytask', 'updatetop', 'updateorder', 'read', 'update', 'readloglist', 'updatepriority',
                 'updateowner', 'delownerbyid', 'delstruceurebyid', 'updatestoptime', 'updatelable', 'updatename',
                 'taskover', 'datelist', 'save', 'delmainuserid', 'rename', 'delete', 'archive', 'recover', 'archlist',
-                'archivetask', 'setover', 'updateclassorder', 'excelimport', 'excelexport', 'taskusers', 'ownertasklist']
+                'archivetask', 'setover', 'updateclassorder', 'excelimport', 'excelexport', 'taskusers', 'ownertasklist',
+                // P0 工作流动作（登录可访问；细粒度鉴权由 assertTaskAuth/assertReviewer/测试人校验等内部逻辑保障）
+                'wrkdictionary', 'workflowread', 'evaluate', 'startprocess',
+                'submitacceptance', 'acceptancepass', 'acceptancereturn',
+                'applyrelease', 'confirmrelease', 'customerconfirm', 'customerreturn', 'completetask',
+                'setauxstatus', 'setreleaseexemption',
+                'initiatetest', 'submittest', 'reviewtest', 'testlist']
+
         
         ];
         Hook::listen('check_auth', $action);
@@ -1157,7 +1165,903 @@ class Task extends ApiCommon
         
         # 查询参与人
         $userList = Db::name('admin_user')->field(['id', 'realname'])->whereIn('id', $userIds)->select();
-        
+
         return resultArray(['data' => $userList]);
+    }
+
+    // ===================== P0 任务工作流、W/R/K、轻量测试（骨架稳定化）=====================
+
+    /** @var WorkflowService */
+    private $wfService;
+
+    private function wf()
+    {
+        if (!$this->wfService) {
+            $this->wfService = new WorkflowService();
+        }
+        return $this->wfService;
+    }
+
+    /**
+     * 集中任务权限校验（所有 P0 接口统一入口）。
+     * @param int $taskId
+     * @param string $level  'read' 查看 | 'manage' 状态管理
+     * @return array [bool $ok, string|array $payload]  通过时 $payload 为 task 行
+     */
+    protected function assertTaskAuth($taskId, $level)
+    {
+        $userInfo = $this->userInfo;
+        $taskId = (int)$taskId;
+        $task = Db::name('task')->where(['task_id' => $taskId, 'ishidden' => 0])->find();
+        if (!$task) {
+            return [false, '任务不存在或已删除'];
+        }
+        $userId = (int)$userInfo['id'];
+        if ($level === 'read') {
+            $taskModel = new \app\work\model\Task();
+            if (!$taskModel->checkTask($taskId, $userInfo)) {
+                return [false, '无权查看该任务'];
+            }
+            return [true, $task];
+        }
+        // manage 级别
+        $adminTypes = adminGroupTypes($userId);
+        if (in_array(1, $adminTypes) || in_array(7, $adminTypes)) {
+            return [true, $task];
+        }
+        // 项目任务：校验项目操作权限（work_id=0 不跳过）
+        if (!empty($task['work_id'])) {
+            if (!$this->checkWorkOperationAuth('setTaskStatus', $task['work_id'], $userId)) {
+                return [false, '无权管理该任务状态'];
+            }
+            return [true, $task];
+        }
+        // OA 任务（work_id=0）：要求创建人或负责人
+        if ((int)$task['create_user_id'] === $userId || (int)$task['main_user_id'] === $userId) {
+            return [true, $task];
+        }
+        return [false, '无权管理该任务状态'];
+    }
+
+    /**
+     * 要求客户端传入有效版本号（>0），不允许以 0 跳过乐观锁。
+     */
+    protected function requireVersion(array $param)
+    {
+        $v = (int)($param['version'] ?? 0);
+        if ($v <= 0) {
+            return [false, 0];
+        }
+        return [true, $v];
+    }
+
+    /**
+     * W/R/K 字典（前后端共享）
+     */
+    public function wrkDictionary()
+    {
+        return resultArray(['data' => WorkflowService::wrkDictionary()]);
+    }
+
+    /**
+     * 读取任务工作流与测试信息（需查看权限）
+     */
+    public function workflowRead()
+    {
+        $param = $this->param;
+        $taskId = (int)($param['task_id'] ?? 0);
+        if ($taskId <= 0) {
+            return resultArray(['error' => '参数错误']);
+        }
+        list($ok, $payload) = $this->assertTaskAuth($taskId, 'read');
+        if (!$ok) {
+            return resultArray(['error' => $payload]);
+        }
+        $wf = $this->wf()->getWorkflow($taskId);
+        $data = [
+            'task_id' => $taskId,
+            'legacy' => $wf ? false : true,
+            'workflow_version' => $wf ? (int)$wf['workflow_version'] : 0,
+            'main_status' => $wf ? $wf['main_status'] : '',
+            'aux_status' => $wf ? $wf['aux_status'] : '',
+            'init_w' => $wf ? $wf['init_w'] : null,
+            'init_r' => $wf ? $wf['init_r'] : null,
+            'init_k' => $wf ? $wf['init_k'] : null,
+            'final_w' => $wf ? $wf['final_w'] : null,
+            'final_r' => $wf ? $wf['final_r'] : null,
+            'final_k' => $wf ? $wf['final_k'] : null,
+            'wrk_frozen' => $wf ? (int)$wf['wrk_frozen'] : 0,
+            'acceptance_criteria' => $wf ? $wf['acceptance_criteria'] : '',
+            'acceptance_user_id' => $wf ? (int)$wf['acceptance_user_id'] : 0,
+            'risk_note' => $wf ? $wf['risk_note'] : '',
+            'professional_confirm' => $wf ? $wf['professional_confirm'] : '',
+            'need_release' => $wf ? (int)$wf['need_release'] : 1,
+            'need_customer_verify' => $wf ? (int)$wf['need_customer_verify'] : 1,
+            'version' => $wf ? (int)$wf['version'] : 0,
+        ];
+        $testExt = Db::name('task_test_ext')->where(['task_id' => $taskId])->find();
+        $data['is_test_task'] = $testExt ? true : false;
+        $data['test_ext'] = $testExt ?: null;
+        return resultArray(['data' => $data]);
+    }
+
+    /**
+     * 事务内提交状态迁移：乐观锁更新 + 审计 + 旧状态兼容 + 台账同步。
+     * @param array $wf 工作流行
+     * @param string $action 动作名
+     * @param string $targetStatus 目标主状态
+     * @param array $extraWfUpdate 工作流附加更新（如 final_w 等）
+     * @param string $reason
+     * @return array [bool $ok, string|array $payload]
+     */
+    protected function commitTransition(array $wf, $action, $targetStatus, array $extraWfUpdate = [], $reason = '')
+    {
+        $taskId = (int)$wf['task_id'];
+        $currentStatus = $wf['main_status'];
+        $version = (int)$wf['version'];
+        $userInfo = $this->userInfo;
+        // 收集 W/R/K 字段变更用于审计
+        $wrkFields = ['init_w', 'init_r', 'init_k', 'final_w', 'final_r', 'final_k'];
+        $fieldChanges = [];
+        $wrkLogs = [];
+        $now = time();
+        foreach ($wrkFields as $f) {
+            if (array_key_exists($f, $extraWfUpdate)) {
+                $oldVal = isset($wf[$f]) ? (string)$wf[$f] : '';
+                $newVal = (string)$extraWfUpdate[$f];
+                if ($oldVal !== $newVal) {
+                    $fieldChanges[$f] = [$oldVal, $newVal];
+                    $wrkLogs[] = [
+                        'task_id' => $taskId,
+                        'field_name' => $f,
+                        'old_value' => $oldVal,
+                        'new_value' => $newVal,
+                        'reason' => (string)$reason,
+                        'user_id' => (int)$userInfo['id'],
+                        'create_time' => $now,
+                    ];
+                }
+            }
+        }
+        Db::startTrans();
+        try {
+            $update = array_merge([
+                'main_status' => $targetStatus,
+                'version' => $version + 1,
+                'update_user_id' => (int)$userInfo['id'],
+                'update_time' => $now,
+            ], $extraWfUpdate);
+            $affected = Db::name('task_workflow')
+                ->where(['task_id' => $taskId, 'version' => $version])
+                ->update($update);
+            if (!$affected) {
+                Db::rollback();
+                return [false, '并发冲突，数据版本已变化，请刷新后重试'];
+            }
+            // W/R/K 变更审计写入（在同一事务内，失败则整体回滚）
+            if ($wrkLogs) {
+                Db::name('task_wrk_log')->insertAll($wrkLogs);
+            }
+            // 状态迁移审计（含本次关键字段前后值）
+            $this->wf()->logTransition($taskId, $action, $currentStatus, $targetStatus, $fieldChanges, $reason, $userInfo['id']);
+            $legacyStatus = ($targetStatus === WorkflowService::STATUS_DONE) ? 5 : 1;
+            Db::name('task')->where(['task_id' => $taskId])->update(['status' => $legacyStatus, 'update_time' => $now]);
+            $this->syncLedgerByTaskStatus($taskId, (int)$userInfo['id'], $legacyStatus);
+            Db::commit();
+            return [true, ['task_id' => $taskId, 'main_status' => $targetStatus, 'version' => $version + 1]];
+        } catch (\Exception $e) {
+            Db::rollback();
+            return [false, '状态迁移失败：' . $e->getMessage()];
+        }
+    }
+
+    /** 评估：待评估 → 待处理 */
+    public function evaluate()
+    {
+        return $this->runSimpleTransition('evaluate', WorkflowService::STATUS_PENDING_HANDLE);
+    }
+
+    /**
+     * 简单状态迁移的统一入口（含权限、版本、辅助状态、迁移合法性校验）。
+     */
+    protected function runSimpleTransition($action, $expectedTarget)
+    {
+        $param = $this->param;
+        $taskId = (int)($param['task_id'] ?? 0);
+        if ($taskId <= 0) {
+            return resultArray(['error' => '参数错误']);
+        }
+        list($okAuth, $task) = $this->assertTaskAuth($taskId, 'manage');
+        if (!$okAuth) {
+            return resultArray(['error' => $task]);
+        }
+        list($okV, $version) = $this->requireVersion($param);
+        if (!$okV) {
+            return resultArray(['error' => '必须提供有效版本号']);
+        }
+        $wf = $this->wf()->getWorkflow($taskId);
+        if (!$wf) {
+            return resultArray(['error' => '该任务未启用 P0 工作流，请先执行 P0 迁移']);
+        }
+        if ((int)$wf['version'] !== $version) {
+            return resultArray(['error' => '数据版本已变化，请刷新后重试']);
+        }
+        if (!empty($wf['aux_status']) && in_array($wf['aux_status'], ['阻塞', '暂缓', '取消', '无需处理'], true)) {
+            return resultArray(['error' => '当前辅助状态为「' . $wf['aux_status'] . '」，不能执行该动作']);
+        }
+        $target = $this->wf()->resolveTargetStatus($action, $wf['main_status']);
+        if ($target === false || $target !== $expectedTarget) {
+            return resultArray(['error' => '当前状态「' . $wf['main_status'] . '」不能执行该动作']);
+        }
+        list($ok, $payload) = $this->commitTransition($wf, $action, $target, [], (string)($param['reason'] ?? ''));
+        if ($ok) {
+            return resultArray(['data' => $payload]);
+        }
+        return resultArray(['error' => $payload]);
+    }
+
+    /** 开始处理：待处理 → 处理中（必须一次性提供完整初始 W/R/K，与冻结同事务）*/
+    public function startProcess()
+    {
+        $param = $this->param;
+        $taskId = (int)($param['task_id'] ?? 0);
+        if ($taskId <= 0) {
+            return resultArray(['error' => '参数错误']);
+        }
+        list($okAuth, $task) = $this->assertTaskAuth($taskId, 'manage');
+        if (!$okAuth) {
+            return resultArray(['error' => $task]);
+        }
+        list($okV, $version) = $this->requireVersion($param);
+        if (!$okV) {
+            return resultArray(['error' => '必须提供有效版本号']);
+        }
+        $wf = $this->wf()->getWorkflow($taskId);
+        if (!$wf) {
+            return resultArray(['error' => '该任务未启用 P0 工作流，请先执行 P0 迁移']);
+        }
+        if ((int)$wf['version'] !== $version) {
+            return resultArray(['error' => '数据版本已变化，请刷新后重试']);
+        }
+        $target = $this->wf()->resolveTargetStatus('start', $wf['main_status']);
+        if ($target === false) {
+            return resultArray(['error' => '当前状态「' . $wf['main_status'] . '」不能开始处理']);
+        }
+        // 必须一次性提供完整初始 W/R/K（若尚未设置）
+        $needSetInit = (empty($wf['init_w']) || empty($wf['init_r']) || empty($wf['init_k']));
+        if ($needSetInit) {
+            $initW = trim((string)($param['init_w'] ?? ''));
+            $initR = trim((string)($param['init_r'] ?? ''));
+            $initK = trim((string)($param['init_k'] ?? ''));
+            if ($initW === '' || $initR === '' || $initK === '') {
+                return resultArray(['error' => '开始处理必须一次性提供完整初始 W/R/K']);
+            }
+            foreach (['init_w' => $initW, 'init_r' => $initR, 'init_k' => $initK] as $f => $val) {
+                $err = $this->wf()->validateWrkField($f, $val);
+                if ($err) {
+                    return resultArray(['error' => $err]);
+                }
+            }
+            $extraUpdate = ['init_w' => $initW, 'init_r' => $initR, 'init_k' => $initK, 'wrk_frozen' => 1];
+        } else {
+            $extraUpdate = ['wrk_frozen' => 1];
+        }
+        list($ok, $payload) = $this->commitTransition($wf, 'start', $target, $extraUpdate, '开始处理');
+        if ($ok) {
+            return resultArray(['data' => $payload]);
+        }
+        return resultArray(['error' => $payload]);
+    }
+
+    /** 提交内部验收：处理中 → 待内部验收（必须完整最终 W/R/K、验收标准、验收人）*/
+    public function submitAcceptance()
+    {
+        $param = $this->param;
+        $taskId = (int)($param['task_id'] ?? 0);
+        if ($taskId <= 0) {
+            return resultArray(['error' => '参数错误']);
+        }
+        list($okAuth, $task) = $this->assertTaskAuth($taskId, 'manage');
+        if (!$okAuth) {
+            return resultArray(['error' => $task]);
+        }
+        list($okV, $version) = $this->requireVersion($param);
+        if (!$okV) {
+            return resultArray(['error' => '必须提供有效版本号']);
+        }
+        $wf = $this->wf()->getWorkflow($taskId);
+        if (!$wf) {
+            return resultArray(['error' => '该任务未启用 P0 工作流，请先执行 P0 迁移']);
+        }
+        if ((int)$wf['version'] !== $version) {
+            return resultArray(['error' => '数据版本已变化，请刷新后重试']);
+        }
+        $target = $this->wf()->resolveTargetStatus('submit_acceptance', $wf['main_status']);
+        if ($target === false) {
+            return resultArray(['error' => '当前状态「' . $wf['main_status'] . '」不能提交验收']);
+        }
+        $finalW = trim((string)($param['final_w'] ?? ''));
+        $finalR = trim((string)($param['final_r'] ?? ''));
+        $finalK = trim((string)($param['final_k'] ?? ''));
+        $criteria = trim((string)($param['acceptance_criteria'] ?? ''));
+        $acceptUserId = (int)($param['acceptance_user_id'] ?? 0);
+        if ($finalW === '' || $finalR === '' || $finalK === '') {
+            return resultArray(['error' => '提交验收必须一次性提供完整最终 W/R/K']);
+        }
+        if ($criteria === '') {
+            return resultArray(['error' => '提交验收必须提供验收标准']);
+        }
+        if ($acceptUserId <= 0) {
+            return resultArray(['error' => '提交验收必须指定验收人']);
+        }
+        foreach (['final_w' => $finalW, 'final_r' => $finalR, 'final_k' => $finalK] as $f => $val) {
+            $err = $this->wf()->validateWrkField($f, $val);
+            if ($err) {
+                return resultArray(['error' => $err]);
+            }
+        }
+        $extraUpdate = [
+            'final_w' => $finalW, 'final_r' => $finalR, 'final_k' => $finalK,
+            'acceptance_criteria' => $criteria, 'acceptance_user_id' => $acceptUserId,
+        ];
+        list($ok, $payload) = $this->commitTransition($wf, 'submit_acceptance', $target, $extraUpdate, '提交内部验收');
+        if ($ok) {
+            return resultArray(['data' => $payload]);
+        }
+        return resultArray(['error' => $payload]);
+    }
+
+    /** 内部验收通过：只能由指定验收人操作 → 待发布 */
+    public function acceptancePass()
+    {
+        $param = $this->param;
+        $taskId = (int)($param['task_id'] ?? 0);
+        if ($taskId <= 0) {
+            return resultArray(['error' => '参数错误']);
+        }
+        list($okAuth, $task) = $this->assertTaskAuth($taskId, 'manage');
+        if (!$okAuth) {
+            return resultArray(['error' => $task]);
+        }
+        list($okV, $version) = $this->requireVersion($param);
+        if (!$okV) {
+            return resultArray(['error' => '必须提供有效版本号']);
+        }
+        $wf = $this->wf()->getWorkflow($taskId);
+        if (!$wf || (int)$wf['version'] !== $version) {
+            return resultArray(['error' => '数据版本已变化，请刷新后重试']);
+        }
+        if ($wf['main_status'] !== WorkflowService::STATUS_ACCEPTANCE) {
+            return resultArray(['error' => '当前状态不能验收']);
+        }
+        // 只能由指定验收人操作（未指定则要求有管理权限，已在 assertTaskAuth 校验）
+        if ((int)$wf['acceptance_user_id'] > 0 && (int)$wf['acceptance_user_id'] !== (int)$this->userInfo['id']) {
+            $adminTypes = adminGroupTypes((int)$this->userInfo['id']);
+            if (!in_array(1, $adminTypes) && !in_array(7, $adminTypes)) {
+                return resultArray(['error' => '只能由指定的验收人操作']);
+            }
+        }
+        return $this->runSimpleTransition('acceptance_pass', WorkflowService::STATUS_RELEASE);
+    }
+
+    /** 内部验收退回 → 处理中 */
+    public function acceptanceReturn()
+    {
+        $param = $this->param;
+        if (empty($param['reason'])) {
+            return resultArray(['error' => '验收退回必须填写原因']);
+        }
+        return $this->runSimpleTransition('acceptance_return', WorkflowService::STATUS_PROCESSING);
+    }
+
+    /** 申请发布：只读预检（不持久化批准状态）*/
+    public function applyRelease()
+    {
+        $param = $this->param;
+        $taskId = (int)($param['task_id'] ?? 0);
+        if ($taskId <= 0) {
+            return resultArray(['error' => '参数错误']);
+        }
+        list($okAuth, $task) = $this->assertTaskAuth($taskId, 'manage');
+        if (!$okAuth) {
+            return resultArray(['error' => $task]);
+        }
+        $wf = $this->wf()->getWorkflow($taskId);
+        if (!$wf) {
+            return resultArray(['error' => '该任务未启用 P0 工作流']);
+        }
+        if ($wf['main_status'] !== WorkflowService::STATUS_RELEASE) {
+            return resultArray(['error' => '当前状态不能申请发布']);
+        }
+        if ((int)$wf['need_release'] === 1) {
+            list($ok, $reason) = $this->wf()->checkReleaseGate($taskId);
+            if (!$ok) {
+                return resultArray(['error' => $reason]);
+            }
+        }
+        // 仅返回预检通过，不持久化；confirmRelease 会重新检查
+        return resultArray(['data' => ['task_id' => $taskId, 'release_ready' => true, 'note' => '预检通过，确认发布时将再次检查门禁']]);
+    }
+
+    /** 确认发布：待发布 → 待客户验证（每次重新执行完整发布门禁）*/
+    public function confirmRelease()
+    {
+        $param = $this->param;
+        $taskId = (int)($param['task_id'] ?? 0);
+        if ($taskId <= 0) {
+            return resultArray(['error' => '参数错误']);
+        }
+        list($okAuth, $task) = $this->assertTaskAuth($taskId, 'manage');
+        if (!$okAuth) {
+            return resultArray(['error' => $task]);
+        }
+        list($okV, $version) = $this->requireVersion($param);
+        if (!$okV) {
+            return resultArray(['error' => '必须提供有效版本号']);
+        }
+        $wf = $this->wf()->getWorkflow($taskId);
+        if (!$wf || (int)$wf['version'] !== $version) {
+            return resultArray(['error' => '数据版本已变化，请刷新后重试']);
+        }
+        if ($wf['main_status'] !== WorkflowService::STATUS_RELEASE) {
+            return resultArray(['error' => '当前状态不能确认发布']);
+        }
+        // 每次确认发布都重新执行完整门禁，不得绕过
+        if ((int)$wf['need_release'] === 1) {
+            list($ok, $reason) = $this->wf()->checkReleaseGate($taskId);
+            if (!$ok) {
+                return resultArray(['error' => '发布门禁未通过：' . $reason]);
+            }
+        }
+        $extraUpdate = [];
+        if (!empty($param['actual_release_version'])) {
+            $extraUpdate['actual_release_version'] = (string)$param['actual_release_version'];
+        }
+        list($ok, $payload) = $this->commitTransition($wf, 'confirm_release', WorkflowService::STATUS_CUSTOMER, $extraUpdate, '确认发布');
+        if ($ok) {
+            return resultArray(['data' => $payload]);
+        }
+        return resultArray(['error' => $payload]);
+    }
+
+    /** 客户确认 → 已完成 */
+    public function customerConfirm()
+    {
+        return $this->runSimpleTransition('customer_confirm', WorkflowService::STATUS_DONE);
+    }
+
+    /** 客户退回 → 处理中 */
+    public function customerReturn()
+    {
+        $param = $this->param;
+        if (empty($param['reason'])) {
+            return resultArray(['error' => '客户退回必须填写原因']);
+        }
+        return $this->runSimpleTransition('customer_return', WorkflowService::STATUS_PROCESSING);
+    }
+
+    /** 直接完成（无需客户验证的任务）*/
+    public function completeTask()
+    {
+        $param = $this->param;
+        $taskId = (int)($param['task_id'] ?? 0);
+        if ($taskId <= 0) {
+            return resultArray(['error' => '参数错误']);
+        }
+        list($okAuth, $task) = $this->assertTaskAuth($taskId, 'manage');
+        if (!$okAuth) {
+            return resultArray(['error' => $task]);
+        }
+        $wf = $this->wf()->getWorkflow($taskId);
+        if (!$wf) {
+            return resultArray(['error' => '该任务未启用 P0 工作流']);
+        }
+        if ((int)$wf['need_customer_verify'] === 1 && $wf['main_status'] !== WorkflowService::STATUS_CUSTOMER) {
+            return resultArray(['error' => '需要客户验证的任务须先进入待客户验证']);
+        }
+        if ($wf['main_status'] !== WorkflowService::STATUS_RELEASE && $wf['main_status'] !== WorkflowService::STATUS_CUSTOMER) {
+            return resultArray(['error' => '当前状态不能完成']);
+        }
+        return $this->runSimpleTransition('complete', WorkflowService::STATUS_DONE);
+    }
+
+    /** 设置辅助状态（阻塞/暂缓/取消/重复/无需处理）—— 版本号 + 事务 */
+    public function setAuxStatus()
+    {
+        $param = $this->param;
+        $taskId = (int)($param['task_id'] ?? 0);
+        $auxStatus = (string)($param['aux_status'] ?? '');
+        $allowedAux = ['阻塞', '暂缓', '取消', '重复', '无需处理', ''];
+        if (!in_array($auxStatus, $allowedAux, true)) {
+            return resultArray(['error' => '辅助状态不合法']);
+        }
+        list($okAuth, $task) = $this->assertTaskAuth($taskId, 'manage');
+        if (!$okAuth) {
+            return resultArray(['error' => $task]);
+        }
+        list($okV, $version) = $this->requireVersion($param);
+        if (!$okV) {
+            return resultArray(['error' => '必须提供有效版本号']);
+        }
+        $wf = $this->wf()->getWorkflow($taskId);
+        if (!$wf || (int)$wf['version'] !== $version) {
+            return resultArray(['error' => '数据版本已变化，请刷新后重试']);
+        }
+        Db::startTrans();
+        try {
+            $affected = Db::name('task_workflow')->where(['task_id' => $taskId, 'version' => $version])->update([
+                'aux_status' => $auxStatus,
+                'aux_reason' => (string)($param['reason'] ?? ''),
+                'version' => $version + 1,
+                'update_user_id' => (int)$this->userInfo['id'],
+                'update_time' => time(),
+            ]);
+            if (!$affected) {
+                Db::rollback();
+                return resultArray(['error' => '并发冲突，请刷新后重试']);
+            }
+            $this->wf()->logTransition($taskId, 'set_aux:' . $auxStatus, $wf['aux_status'], $auxStatus, [], (string)($param['reason'] ?? ''), $this->userInfo['id']);
+            Db::commit();
+            return resultArray(['data' => ['task_id' => $taskId, 'aux_status' => $auxStatus, 'version' => $version + 1]]);
+        } catch (\Exception $e) {
+            Db::rollback();
+            return resultArray(['error' => '操作失败：' . $e->getMessage()]);
+        }
+    }
+
+    /** 有审计地豁免发布或客户验证 —— 版本号 + 事务 */
+    public function setReleaseExemption()
+    {
+        $param = $this->param;
+        $taskId = (int)($param['task_id'] ?? 0);
+        if (empty($param['reason'])) {
+            return resultArray(['error' => '豁免必须填写原因']);
+        }
+        list($okAuth, $task) = $this->assertTaskAuth($taskId, 'manage');
+        if (!$okAuth) {
+            return resultArray(['error' => $task]);
+        }
+        list($okV, $version) = $this->requireVersion($param);
+        if (!$okV) {
+            return resultArray(['error' => '必须提供有效版本号']);
+        }
+        $wf = $this->wf()->getWorkflow($taskId);
+        if (!$wf || (int)$wf['version'] !== $version) {
+            return resultArray(['error' => '数据版本已变化，请刷新后重试']);
+        }
+        $update = ['release_skip_reason' => (string)$param['reason'], 'release_skip_user_id' => (int)$this->userInfo['id'], 'release_skip_time' => time(), 'update_time' => time(), 'version' => $version + 1];
+        if (array_key_exists('need_release', $param)) {
+            $update['need_release'] = $param['need_release'] ? 1 : 0;
+        }
+        if (array_key_exists('need_customer_verify', $param)) {
+            $update['need_customer_verify'] = $param['need_customer_verify'] ? 1 : 0;
+        }
+        Db::startTrans();
+        try {
+            $affected = Db::name('task_workflow')->where(['task_id' => $taskId, 'version' => $version])->update($update);
+            if (!$affected) {
+                Db::rollback();
+                return resultArray(['error' => '并发冲突，请刷新后重试']);
+            }
+            $this->wf()->logTransition($taskId, 'release_exemption', '', '', $update, (string)$param['reason'], $this->userInfo['id']);
+            Db::commit();
+            return resultArray(['data' => ['task_id' => $taskId, 'version' => $version + 1]]);
+        } catch (\Exception $e) {
+            Db::rollback();
+            return resultArray(['error' => '操作失败：' . $e->getMessage()]);
+        }
+    }
+
+    /**
+     * updateWrk —— 本轮关闭（冻结后更正能力未开放，不暴露路由）。
+     * 防止绕过冻结规则直接修改 W/R/K。
+     */
+    public function updateWrk()
+    {
+        return resultArray(['error' => 'W/R/K 更正功能尚未开放，请通过状态动作设置初始/最终值']);
+    }
+
+    // ===================== 轻量测试任务闭环 =====================
+
+    /** 发起测试：必须指定评定人，request_id 幂等，复用现有任务模块生成 test 任务 */
+    public function initiateTest()
+    {
+        $param = $this->param;
+        $userInfo = $this->userInfo;
+        $originTaskId = (int)($param['origin_task_id'] ?? 0);
+        if ($originTaskId <= 0) {
+            return resultArray(['error' => '必须指定原研发任务']);
+        }
+        // 必须有原研发任务的状态管理权限
+        list($okAuth, $originTask) = $this->assertTaskAuth($originTaskId, 'manage');
+        if (!$okAuth) {
+            return resultArray(['error' => $originTask]);
+        }
+        $requestId = trim((string)($param['request_id'] ?? ''));
+        if ($requestId === '') {
+            return resultArray(['error' => '发起测试必须提供 request_id 幂等标识']);
+        }
+        $reviewerUserId = (int)($param['reviewer_user_id'] ?? 0);
+        if ($reviewerUserId <= 0) {
+            return resultArray(['error' => '发起测试必须指定评定人']);
+        }
+        $testers = !empty($param['testers']) ? $param['testers'] : [];
+        if (!is_array($testers) || !$testers) {
+            return resultArray(['error' => '至少指定一名测试人员']);
+        }
+        // 评定人不能等于任何测试执行人
+        foreach ($testers as $t) {
+            if ((int)$t === $reviewerUserId) {
+                return resultArray(['error' => '评定人不能同时是测试执行人']);
+            }
+        }
+        $testType = (string)($param['test_type'] ?? '');
+        $allowedTestTypes = array_keys(WorkflowService::testTypeDictionary());
+        if (!in_array($testType, $allowedTestTypes, true)) {
+            return resultArray(['error' => '测试类型必须为：' . implode(' 或 ', $allowedTestTypes)]);
+        }
+        $testScope = (string)($param['test_scope'] ?? '');
+        $completionCriteria = (string)($param['completion_criteria'] ?? '');
+        $deadline = !empty($param['deadline']) ? (is_numeric($param['deadline']) ? (int)$param['deadline'] : strtotime($param['deadline'])) : 0;
+        $isRequired = empty($param['is_required']) ? 0 : 1;
+        $sourceType = (string)($param['source_type'] ?? 'task');
+        $sourceId = (int)($param['source_id'] ?? $originTaskId);
+        $now = time();
+        // 业务测试人员不能与原任务主要负责人相同（后端校验）
+        $originMainUserId = (int)($originTask['main_user_id'] ?? 0);
+        if ($testType === WorkflowService::TEST_TYPE_BUSINESS) {
+            foreach ($testers as $t) {
+                if ((int)$t === $originMainUserId && $originMainUserId > 0) {
+                    return resultArray(['error' => '业务测试人员不能与原任务主要负责人相同']);
+                }
+            }
+        }
+        // createTask() 内部会对 start_time/stop_time 调用 strtotime()，必须传 Y-m-d H:i:s 字符串
+        $startTimeStr = date('Y-m-d H:i:s', $now);
+        $stopTimeStr = $deadline > 0 ? date('Y-m-d H:i:s', $deadline) : '';
+        $createdTaskIds = [];
+        // 每个测试人员独立事务：并发唯一冲突时回滚该人员的孤儿任务，再读取既有任务
+        foreach ($testers as $testerUserId) {
+            $testerUserId = (int)$testerUserId;
+            if ($testerUserId <= 0) {
+                continue;
+            }
+            $idempotencyKey = $this->wf()->buildTestIdempotencyKey($requestId, $testerUserId);
+            // 事务前先查一次，避免不必要的建任务
+            $existingTaskId = $this->wf()->findExistingTestTask($idempotencyKey);
+            if ($existingTaskId) {
+                $createdTaskIds[] = $existingTaskId;
+                continue;
+            }
+            Db::startTrans();
+            try {
+                // 事务内再次查询幂等键，防止并发
+                $recheckId = $this->wf()->findExistingTestTask($idempotencyKey);
+                if ($recheckId) {
+                    Db::rollback();
+                    $createdTaskIds[] = $recheckId;
+                    continue;
+                }
+                $taskData = [
+                    'name' => '测试任务：' . $originTask['name'],
+                    'description' => $testScope,
+                    'work_id' => (int)$originTask['work_id'],
+                    'class_id' => (int)$originTask['class_id'],
+                    'main_user_id' => $testerUserId,
+                    'create_user_id' => (int)$userInfo['id'],
+                    'priority' => 0,
+                    'start_time' => $startTimeStr,
+                    'stop_time' => $stopTimeStr,
+                    'pid' => 0,
+                ];
+                $taskModel = new \app\work\model\Task();
+                $newTaskId = (int)$taskModel->createTask($taskData);
+                if (!$newTaskId) {
+                    throw new \Exception('测试任务创建失败');
+                }
+                Db::name('task_test_ext')->insert([
+                    'task_id' => $newTaskId,
+                    'source_type' => $sourceType,
+                    'source_id' => $sourceId,
+                    'origin_task_id' => $originTaskId,
+                    'test_type' => $testType,
+                    'test_scope' => $testScope,
+                    'completion_criteria' => $completionCriteria,
+                    'tester_user_id' => $testerUserId,
+                    'reviewer_user_id' => $reviewerUserId,
+                    'deadline' => $deadline,
+                    'is_required' => $isRequired,
+                    'submit_status' => 'not_submitted',
+                    'review_status' => WorkflowService::REVIEW_PENDING,
+                    'current_round' => 0,
+                    'idempotency_key' => $idempotencyKey,
+                    'version' => 1,
+                    'create_user_id' => (int)$userInfo['id'],
+                    'create_time' => $now,
+                    'update_time' => $now,
+                ]);
+                Db::commit();
+                $createdTaskIds[] = $newTaskId;
+            } catch (\Exception $createEx) {
+                // 唯一索引冲突或其他异常：回滚该测试人员的整个事务，
+                // 确保刚创建的普通任务、关系、消息和日志全部回滚，不留下孤儿任务
+                Db::rollback();
+                $existingId = $this->wf()->findExistingTestTask($idempotencyKey);
+                if ($existingId) {
+                    $createdTaskIds[] = $existingId;
+                    continue;
+                }
+                // 真实错误（非并发冲突）向上返回
+                return resultArray(['error' => '发起测试失败（测试人员 ' . $testerUserId . '）：' . $createEx->getMessage()]);
+            }
+        }
+        return resultArray(['data' => ['task_ids' => $createdTaskIds, 'count' => count($createdTaskIds)]]);
+    }
+
+    /** 测试人员提交本轮结果（只有指定测试人员可提交，版本号防并发）*/
+    public function submitTest()
+    {
+        $param = $this->param;
+        $userInfo = $this->userInfo;
+        $taskId = (int)($param['task_id'] ?? 0);
+        if ($taskId <= 0) {
+            return resultArray(['error' => '参数错误']);
+        }
+        list($okV, $version) = $this->requireVersion($param);
+        if (!$okV) {
+            return resultArray(['error' => '必须提供有效版本号']);
+        }
+        $ext = Db::name('task_test_ext')->where(['task_id' => $taskId])->find();
+        if (!$ext) {
+            return resultArray(['error' => '测试任务不存在']);
+        }
+        if ((int)$ext['version'] !== $version) {
+            return resultArray(['error' => '数据版本已变化，请刷新后重试']);
+        }
+        // 只能由指定测试人员提交
+        if ((int)$ext['tester_user_id'] !== (int)$userInfo['id']) {
+            return resultArray(['error' => '只有指定的测试人员可以提交结果']);
+        }
+        list($can, $reason) = $this->wf()->canSubmitTest($taskId);
+        if (!$can) {
+            return resultArray(['error' => $reason]);
+        }
+        $now = time();
+        $newRound = (int)$ext['current_round'] + 1;
+        Db::startTrans();
+        try {
+            $affected = Db::name('task_test_ext')->where(['task_id' => $taskId, 'version' => $version])->update([
+                'submit_status' => 'submitted',
+                'review_status' => WorkflowService::REVIEW_PENDING,
+                'current_round' => $newRound,
+                'submit_result' => (string)($param['result'] ?? ''),
+                'submit_issues' => (string)($param['issues'] ?? ''),
+                'update_time' => $now,
+                'version' => $version + 1,
+            ]);
+            if (!$affected) {
+                Db::rollback();
+                return resultArray(['error' => '并发冲突，请刷新后重试']);
+            }
+            Db::name('task_test_history')->insert([
+                'task_id' => $taskId, 'round' => $newRound, 'history_type' => 'submit',
+                'content' => (string)($param['result'] ?? ''), 'issues' => (string)($param['issues'] ?? ''),
+                'user_id' => (int)$userInfo['id'], 'create_time' => $now,
+            ]);
+            Db::commit();
+            return resultArray(['data' => ['task_id' => $taskId, 'round' => $newRound, 'review_status' => WorkflowService::REVIEW_PENDING, 'version' => $version + 1]]);
+        } catch (\Exception $e) {
+            Db::rollback();
+            return resultArray(['error' => '提交失败：' . $e->getMessage()]);
+        }
+    }
+
+    /** 研发负责人或授权替补评定：必须是保存的评定人，且测试已提交、当前待评定 */
+    public function reviewTest()
+    {
+        $param = $this->param;
+        $userInfo = $this->userInfo;
+        $taskId = (int)($param['task_id'] ?? 0);
+        $verdict = (string)($param['verdict'] ?? '');
+        if ($taskId <= 0) {
+            return resultArray(['error' => '参数错误']);
+        }
+        if (!in_array($verdict, [WorkflowService::REVIEW_COMPLIANT, WorkflowService::REVIEW_NON_COMPLY], true)) {
+            return resultArray(['error' => '评定结果必须为符合要求或不符合要求']);
+        }
+        list($okV, $version) = $this->requireVersion($param);
+        if (!$okV) {
+            return resultArray(['error' => '必须提供有效版本号']);
+        }
+        $ext = Db::name('task_test_ext')->where(['task_id' => $taskId])->find();
+        if (!$ext) {
+            return resultArray(['error' => '测试任务不存在']);
+        }
+        if ((int)$ext['version'] !== $version) {
+            return resultArray(['error' => '数据版本已变化，请刷新后重试']);
+        }
+        // 必须是保存的评定人
+        $reviewerErr = $this->wf()->assertReviewer($taskId, $userInfo['id']);
+        if ($reviewerErr) {
+            return resultArray(['error' => $reviewerErr]);
+        }
+        // 只能评定已提交且当前待评定的轮次
+        if ($ext['submit_status'] !== 'submitted') {
+            return resultArray(['error' => '测试人员尚未提交结果，不能评定']);
+        }
+        if ($ext['review_status'] !== WorkflowService::REVIEW_PENDING) {
+            return resultArray(['error' => '当前测试任务不处于待评定状态']);
+        }
+        if ($verdict === WorkflowService::REVIEW_NON_COMPLY && empty($param['return_reason'])) {
+            return resultArray(['error' => '不符合要求必须填写退回原因']);
+        }
+        $now = time();
+        $update = [
+            'review_status' => $verdict,
+            'review_user_id' => (int)$userInfo['id'],
+            'review_time' => $now,
+            'update_time' => $now,
+            'version' => $version + 1,
+        ];
+        if ($verdict === WorkflowService::REVIEW_NON_COMPLY) {
+            $update['return_reason'] = (string)$param['return_reason'];
+            $update['return_requirements'] = (string)($param['return_requirements'] ?? '');
+            $update['return_deadline'] = !empty($param['return_deadline']) ? (is_numeric($param['return_deadline']) ? (int)$param['return_deadline'] : strtotime($param['return_deadline'])) : 0;
+            $update['submit_status'] = 'not_submitted';
+        }
+        Db::startTrans();
+        try {
+            $affected = Db::name('task_test_ext')->where(['task_id' => $taskId, 'version' => $version])->update($update);
+            if (!$affected) {
+                Db::rollback();
+                return resultArray(['error' => '并发冲突，请刷新后重试']);
+            }
+            Db::name('task_test_history')->insert([
+                'task_id' => $taskId, 'round' => (int)$ext['current_round'], 'history_type' => 'review',
+                'content' => (string)($param['return_reason'] ?? ''), 'issues' => (string)($param['return_requirements'] ?? ''),
+                'review_status' => $verdict, 'user_id' => (int)$userInfo['id'], 'create_time' => $now,
+            ]);
+            Db::commit();
+            return resultArray(['data' => ['task_id' => $taskId, 'review_status' => $verdict, 'version' => $version + 1]]);
+        } catch (\Exception $e) {
+            Db::rollback();
+            return resultArray(['error' => '评定失败：' . $e->getMessage()]);
+        }
+    }
+
+    /** 查询某原研发任务下的测试任务列表（需查看权限）*/
+    public function testList()
+    {
+        $param = $this->param;
+        $originTaskId = (int)($param['origin_task_id'] ?? ($param['task_id'] ?? 0));
+        if ($originTaskId <= 0) {
+            return resultArray(['error' => '参数错误']);
+        }
+        list($okAuth, $task) = $this->assertTaskAuth($originTaskId, 'read');
+        if (!$okAuth) {
+            return resultArray(['error' => $task]);
+        }
+        $exts = Db::name('task_test_ext')->where(['origin_task_id' => $originTaskId])->select();
+        $taskIds = [];
+        foreach ($exts as $e) {
+            $taskIds[] = (int)$e['task_id'];
+        }
+        $taskMap = [];
+        if ($taskIds) {
+            $rows = Db::name('task')->whereIn('task_id', $taskIds)->column('name', 'task_id');
+            foreach ($rows as $tid => $name) {
+                $taskMap[$tid] = $name;
+            }
+        }
+        $list = [];
+        $requiredOk = true;
+        foreach ($exts as $e) {
+            $e['task_name'] = isset($taskMap[$e['task_id']]) ? $taskMap[$e['task_id']] : '';
+            if ((int)$e['is_required'] === 1 && $e['review_status'] !== WorkflowService::REVIEW_COMPLIANT) {
+                $requiredOk = false;
+            }
+            $list[] = $e;
+        }
+        return resultArray(['data' => ['list' => $list, 'required_all_compliant' => $requiredOk]]);
     }
 }

@@ -225,6 +225,10 @@
         align="stretch">
 
         <div class="main__bd--left">
+          <task-workflow-panel
+            v-if="taskData && taskData.task_id"
+            :task-id="taskData.task_id"
+            @refresh="getDetail" />
           <flexbox>
             <flexbox-item class="participant">
               <div class="participant-title">参与人</div>
@@ -605,6 +609,7 @@ import ReplyComment from '@/components/ReplyComment'
 import moment from 'moment'
 import { objDeepCopy } from '@/utils'
 import TaskMixin from '../mixins/TaskMixin'
+import TaskWorkflowPanel from './TaskWorkflowPanel'
 
 export default {
   name: 'TaskDetail',
@@ -620,7 +625,8 @@ export default {
     FileCell,
     XhUserCell,
     CommentList,
-    ReplyComment
+    ReplyComment,
+    TaskWorkflowPanel
   },
   mixins: [TaskMixin],
   props: {

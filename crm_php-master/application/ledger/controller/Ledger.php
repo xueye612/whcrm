@@ -9,8 +9,10 @@ use app\work\traits\WorkAuthTrait;
 use app\admin\logic\DingTalkLogic;
 use app\ledger\logic\LedgerLogic;
 use app\ledger\logic\NotifyService;
+use app\work\logic\WorkflowService;
 use think\Hook;
 use think\Request;
+use think\Db;
 
 class Ledger extends ApiCommon
 {
@@ -160,7 +162,13 @@ class Ledger extends ApiCommon
             $this->addCompletionReplyRecord($model, $ledgerId, $param['customer_id'], $replyContent, '', $param['status'], $userInfo['id']);
             $this->addCloseReasonRecord($model, $ledgerId, $param['customer_id'], $closeReason, '', $param['status'], $userInfo['id']);
             $this->addLedgerActivity($ledgerId, $param['customer_id'], '创建台账', $userInfo['id'], 1);
-            $taskId = $this->maybeCreateProjectTask($ledgerId, $param, $userInfo);
+            $taskId = 0;
+            $taskError = '';
+            try {
+                $taskId = $this->maybeCreateProjectTask($ledgerId, $param, $userInfo);
+            } catch (\Exception $taskEx) {
+                $taskError = $taskEx->getMessage();
+            }
             if ($taskId) {
                 $model->addProgressRecord($ledgerId, $param['customer_id'], '已生成项目任务', '', $param['status'], $userInfo['id']);
                 $this->addLedgerActivity($ledgerId, $param['customer_id'], '已生成项目任务', $userInfo['id'], 1);
@@ -170,6 +178,9 @@ class Ledger extends ApiCommon
             $handlerId = (int)($param['handler_user_id'] ?? 0);
             if ($handlerId > 0 && $handlerId !== (int)$userInfo['id']) {
                 $notifyService->notify(NotifyService::EVENT_ASSIGNED, $ledgerId, $userInfo['id']);
+            }
+            if ($taskError) {
+                return resultArray(['error' => '台账已创建，但自动建任务失败：' . $taskError]);
             }
             return resultArray(['data' => '添加成功']);
         }
@@ -304,7 +315,13 @@ class Ledger extends ApiCommon
                 $mergedData['status'] ?? '',
                 $userInfo['id']
             );
-            $taskId = $this->maybeCreateProjectTask($ledgerId, $mergedData, $userInfo);
+            $taskId = 0;
+            $taskError = '';
+            try {
+                $taskId = $this->maybeCreateProjectTask($ledgerId, $mergedData, $userInfo);
+            } catch (\Exception $taskEx) {
+                $taskError = $taskEx->getMessage();
+            }
             if ($taskId) {
                 $model->addProgressRecord($ledgerId, $oldData['customer_id'], '已生成项目任务', '', $param['status'] ?? $oldData['status'], $userInfo['id']);
                 $this->addLedgerActivity($ledgerId, $oldData['customer_id'], '已生成项目任务', $userInfo['id'], 1);
@@ -323,6 +340,9 @@ class Ledger extends ApiCommon
                     'old_status' => $oldData['status'] ?? '',
                     'new_status' => $param['status'] ?? ''
                 ]);
+            }
+            if ($taskError) {
+                return resultArray(['error' => '台账已更新，但自动建任务失败：' . $taskError]);
             }
             return resultArray(['data' => '编辑成功']);
         }
@@ -651,9 +671,50 @@ class Ledger extends ApiCommon
             $taskParam['contract_ids'] = [$contractId];
         }
 
-        $taskModel = new \app\work\model\Task();
-        $newTaskId = (int)$taskModel->createTask($taskParam);
-        if ($newTaskId) {
+        // 事务化：锁台账行 → 检查幂等 → 创建任务 + 回写 + 工作流初始化 → 提交
+        // 工作流表或 auto_task_key 不存在时返回明确错误，不降级为无幂等/无工作流模式
+        $idempotencyKey = 'ledger:' . $ledgerId . ':auto-task';
+        $notifyContext = null;
+        Db::startTrans();
+        try {
+            // 锁定目标台账行，防止并发重复
+            $lockedLedger = db('customer_ledger')->where(['ledger_id' => $ledgerId])->lock(true)->find();
+            if (!$lockedLedger) {
+                throw new \Exception('台账不存在');
+            }
+            // 已存在有效 task_id 则返回现有任务，不重复创建
+            $existingTaskId = (int)($lockedLedger['task_id'] ?? 0);
+            if ($existingTaskId) {
+                Db::commit();
+                return $existingTaskId;
+            }
+            // 检查 auto_task_key 列是否存在；不存在说明未执行 P0 迁移
+            $hasAutoKeyCol = false;
+            try {
+                db('customer_ledger')->where(['ledger_id' => $ledgerId])->field('auto_task_key')->find();
+                $hasAutoKeyCol = true;
+            } catch (\Exception $colEx) {
+                $hasAutoKeyCol = false;
+            }
+            if (!$hasAutoKeyCol) {
+                throw new \Exception('请先执行 P0 迁移（customer_ledger 缺少 auto_task_key 列）');
+            }
+            // compare-and-set：抢占幂等键
+            $claimed = db('customer_ledger')
+                ->where(['ledger_id' => $ledgerId, 'auto_task_key' => ''])
+                ->update(['auto_task_key' => $idempotencyKey]);
+            if (!$claimed) {
+                // 并发竞争中本请求未抢占到，读取已创建的任务
+                $taskId = (int)db('customer_ledger')->where('ledger_id', $ledgerId)->value('task_id');
+                Db::commit();
+                return $taskId;
+            }
+            // 创建任务
+            $taskModel = new \app\work\model\Task();
+            $newTaskId = (int)$taskModel->createTask($taskParam);
+            if (!$newTaskId) {
+                throw new \Exception($taskModel->getError() ?: '自动建任务失败');
+            }
             $customerName = '';
             if ($customerId) {
                 $customerName = (string)db('crm_customer')->where('customer_id', $customerId)->value('name');
@@ -672,11 +733,34 @@ class Ledger extends ApiCommon
                     ]);
                 }
             }
-            (new DingTalkLogic())->sendTaskNotify('任务创建', $newTaskId, $userInfo['id'], [
-                'summary' => '台账生成任务',
-                'customer_name' => $customerName
-            ]);
-            return (int)$newTaskId;
+            // P0 工作流初始化：新自动任务默认进入“待评估”；表不存在时抛出明确错误，不降级
+            $wfService = new WorkflowService();
+            $wfRow = $wfService->getWorkflow($newTaskId, true);
+            if (!$wfRow) {
+                throw new \Exception('请先执行 P0 迁移（task_workflow 表初始化失败）');
+            }
+            $notifyContext = [
+                'newTaskId' => $newTaskId,
+                'customerName' => $customerName,
+            ];
+            Db::commit();
+        } catch (\Exception $e) {
+            Db::rollback();
+            // 向上抛出真实错误，控制器据此返回可处理的中文错误
+            throw $e;
+        }
+
+        // 通知必须在事务成功后发送；通知失败不影响已提交业务
+        if ($notifyContext) {
+            try {
+                (new DingTalkLogic())->sendTaskNotify('任务创建', $notifyContext['newTaskId'], $userInfo['id'], [
+                    'summary' => '台账生成任务',
+                    'customer_name' => $notifyContext['customerName']
+                ]);
+            } catch (\Exception $e) {
+                // 通知失败仅记录，不回滚已提交事务
+            }
+            return (int)$notifyContext['newTaskId'];
         }
         return 0;
     }

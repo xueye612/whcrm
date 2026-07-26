@@ -203,7 +203,7 @@ class CustomerLedger extends Common
 
     public function addProgressRecord($ledgerId, $customerId, $content, $oldStatus, $newStatus, $userId)
     {
-        $recordModel = model('CustomerLedgerRecord');
+        $recordModel = new \app\ledger\model\CustomerLedgerRecord();
         $data = [
             'ledger_id' => $ledgerId,
             'customer_id' => $customerId,
@@ -217,7 +217,7 @@ class CustomerLedger extends Common
 
     public function listProgressRecord($ledgerId)
     {
-        $recordModel = model('CustomerLedgerRecord');
+        $recordModel = new \app\ledger\model\CustomerLedgerRecord();
         return $recordModel->getList($ledgerId);
     }
 
