@@ -37,21 +37,53 @@ class ProjectService
     const MS_STATUS_DONE       = '已完成';
     const MS_STATUS_OVERDUE    = '已延期';
 
-    // ========== 验收三档结果 ==========
-    const ACC_GOOD      = '完成良好';
-    const ACC_BASIC     = '基本完成';
-    const ACC_IMPROVE   = '需要改进';
+    // ========== 验收三档结果（V1.6 §24） ==========
+    const ACC_EXCELLENT = '优质';
+    const ACC_QUALIFIED = '合格';
+    const ACC_IMPROVE   = '待改进';
+
+    /** 实施等级→合格交付基础比例（V1.6 §24） */
+    public static $implLevelPct = [
+        self::LEVEL_1 => 5.0,
+        self::LEVEL_2 => 7.0,
+        self::LEVEL_3 => 10.0,
+        self::LEVEL_4 => 12.0, // 上限，立项审批
+    ];
+
+    /** 三档结果系数（V1.6 §24） */
+    public static $resultCoeff = [
+        self::ACC_EXCELLENT => 1.10,
+        self::ACC_QUALIFIED => 1.00,
+        self::ACC_IMPROVE   => 0.80,
+    ];
+
+    /** P1 自有产品标准岗位分配（V1.6 §25，与P4外包42/38/10/5/5不同） */
+    const DEFAULT_DIST = [
+        ['role' => '技术与项目负责人', 'percentage' => 40],
+        ['role' => '客户成功工程师', 'percentage' => 28],
+        ['role' => '研发负责人', 'percentage' => 25],
+        ['role' => '总经理兼产品负责人', 'percentage' => 5],
+        ['role' => '市场运营专员', 'percentage' => 2],
+    ];
 
     // ========== 完整性 ==========
     const COMP_FULL     = '完整';
     const COMP_PARTIAL  = '待补充';
     const COMP_MISSING  = '缺失';
 
+    /** P1 自有产品交付奖金池 = 到账收入 × 实施等级比例 × 结果系数（V1.6 §24） */
+    public static function computeDeliveryPool($revenue, $implLevel, $result)
+    {
+        $pct = isset(self::$implLevelPct[$implLevel]) ? self::$implLevelPct[$implLevel] : 5.0;
+        $coeff = isset(self::$resultCoeff[$result]) ? self::$resultCoeff[$result] : 1.00;
+        return round((float)$revenue * $pct / 100 * $coeff, 2);
+    }
+
     private static $types       = [self::TYPE_OWN, self::TYPE_OUTSOURCE];
     private static $levels      = [self::LEVEL_1, self::LEVEL_2, self::LEVEL_3, self::LEVEL_4];
     private static $msTypes     = [self::MS_REQUIREMENT, self::MS_DEVELOP, self::MS_TEST, self::MS_RELEASE];
     private static $msStatuses  = [self::MS_STATUS_TODO, self::MS_STATUS_DOING, self::MS_STATUS_DONE, self::MS_STATUS_OVERDUE];
-    private static $accResults  = [self::ACC_GOOD, self::ACC_BASIC, self::ACC_IMPROVE];
+    private static $accResults  = [self::ACC_EXCELLENT, self::ACC_QUALIFIED, self::ACC_IMPROVE];
     private static $knowledgeTypes = ['目录', '接口', '业务规则', '开发变更', '上线模块', '使用指导'];
     private static $completeness   = [self::COMP_FULL, self::COMP_PARTIAL, self::COMP_MISSING];
 
@@ -63,9 +95,12 @@ class ProjectService
         return [
             'project_types'    => self::$types,
             'impl_levels'      => self::$levels,
+            'impl_level_pct'   => self::$implLevelPct,
             'milestone_types'  => self::$msTypes,
             'milestone_status' => self::$msStatuses,
             'acceptance_result'=> self::$accResults,
+            'result_coeff'     => self::$resultCoeff,
+            'default_dist'     => self::DEFAULT_DIST,
             'knowledge_types'  => self::$knowledgeTypes,
             'completeness'     => self::$completeness,
         ];

@@ -31,6 +31,16 @@ class PerformanceService
         self::RATING_POOR => 0.60,
     ];
 
+    /** 岗位季度绩效参考基准（V1.6 §21） */
+    public static $quarterlyBase = [
+        '总经理兼产品负责人' => 3000.00,
+        '研发负责人'        => 3000.00,
+        '技术与项目负责人'  => 2400.00,
+        '客户成功工程师'    => 1500.00,
+        '驻场服务专员'      => 1500.00,
+        '市场运营专员'      => 1500.00,
+    ];
+
     private static $tiers = [self::TIER_GOOD, self::TIER_BASIC, self::TIER_IMPROVE];
 
     public static function dictionary()
@@ -40,6 +50,7 @@ class PerformanceService
             'quality_tiers' => self::$tiers,
             'ratings' => array_keys(self::$ratingFactors),
             'rating_factors' => self::$ratingFactors,
+            'quarterly_base' => self::$quarterlyBase,
         ];
     }
 

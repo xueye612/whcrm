@@ -22,6 +22,10 @@ class LeadPoolService
     private static $rawStatuses = [self::RAW_PENDING, self::RAW_CHECKED, self::RAW_DUP, self::RAW_MERGED, self::RAW_CONVERTED];
     private static $decisions   = [self::DEC_MERGE, self::DEC_INDEPEND, self::DEC_DUPLICATE];
 
+    /** 高质量原始数据批次奖励（V1.6 §32） */
+    const BATCH_BASIC = 100.00;  // ≥10真实去重+≥3基础核实
+    const BATCH_PREMIUM = 200.00; // ≥20完整+≥5基础核实+≥1有效联系
+
     public static function dictionary()
     {
         return [
