@@ -551,6 +551,13 @@ return [
     'crm/reward/offset'       => ['crm/reward/offset',      ['method' => 'POST']],
     'crm/reward/expenseSave'  => ['crm/reward/expenseSave', ['method' => 'POST']],
     'crm/reward/expenseList'  => ['crm/reward/expenseList', ['method' => 'POST']],
+    // ===== P-CORRECT 审批型功能 =====
+    'crm/reward/approvalRequest'  => ['crm/reward/approvalRequest', ['method' => 'POST']],
+    'crm/reward/approvalDecide'   => ['crm/reward/approvalDecide', ['method' => 'POST']],
+    'crm/reward/approvalCheck'    => ['crm/reward/approvalCheck', ['method' => 'POST']],
+    'crm/reward/stageOffsetCalc'  => ['crm/reward/stageOffsetCalc', ['method' => 'POST']],
+    'crm/reward/paymentRecord'    => ['crm/reward/paymentRecord', ['method' => 'POST']],
+    'crm/reward/paymentConfirm'   => ['crm/reward/paymentConfirm', ['method' => 'POST']],
     // ===== P6 季度绩效（20260727）=====
     'crm/performance/dictionary'  => ['crm/performance/dictionary', ['method' => 'POST']],
     'crm/performance/summarySave' => ['crm/performance/summarySave',['method' => 'POST']],

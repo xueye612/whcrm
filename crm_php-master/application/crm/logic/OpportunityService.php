@@ -21,7 +21,7 @@ class OpportunityService
     private static $rewards = [
         self::TYPE_DEALER    => ['基础核实' => 30.00, '有效联系' => 200.00, '正式交流' => 500.00, '明确项目' => 1000.00],
         self::TYPE_HOSPITAL  => ['基础核实' => 50.00, '有效联系' => 300.00, '正式演示或拜访' => 800.00, '明确项目' => 1500.00],
-        self::TYPE_OUTSOURCE => ['基础核实' => 50.00, '正式需求沟通' => 200.00, '方案或报价' => 500.00],
+        self::TYPE_OUTSOURCE => ['基础核实' => 50.00, '正式需求沟通' => 200.00, '方案或报价' => 200.00], // 产品确认=200（非V1.6的500）
     ];
 
     public static function dictionary()

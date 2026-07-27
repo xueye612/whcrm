@@ -14,7 +14,7 @@ class Reward extends ApiCommon
 {
     public function _initialize()
     {
-        $action = ['permission' => [''], 'allow' => ['dictionary']];
+        $action = ['permission' => [''], 'allow' => ['dictionary', 'candidatesave', 'candidatelist', 'review', 'batchcreate', 'batchsettle', 'offset', 'configsave', 'expensesave', 'expenselist', 'approvalrequest', 'approvaldecide', 'approvalcheck', 'stageoffsetcalc', 'paymentrecord', 'paymentconfirm']];
         Hook::listen('check_auth', $action);
         if (!in_array(strtolower(Request::instance()->action()), $action['permission'])) {
             parent::_initialize();
@@ -201,5 +201,111 @@ class Reward extends ApiCommon
     {
         $list = Db::name('business_expense')->order('expense_id desc')->limit(200)->select();
         return resultArray(['data' => ['list' => $list]]);
+    }
+
+    // ===== 7项审批型功能 =====
+
+    /** 1-2,5,6. 制度审批申请（实施四级/外包四级/经销商后续/年度经营） */
+    public function approvalRequest()
+    {
+        $param = $this->param; $userInfo = $this->userInfo;
+        $type = trim((string)($param['approval_type'] ?? ''));
+        $allowTypes = ['impl_level_4','outsource_level_4','dealer_followup','annual_bonus'];
+        if (!in_array($type, $allowTypes, true)) return resultArray(['error' => '不支持的审批类型']);
+        $now = time();
+        $id = Db::name('policy_approval')->insertGetId([
+            'approval_type' => $type, 'source_ref' => (string)($param['source_ref'] ?? ''),
+            'requested_value' => (float)($param['requested_value'] ?? 0),
+            'basis_note' => trim((string)($param['basis_note'] ?? '')),
+            'applicant_user_id' => (int)$userInfo['id'], 'result' => '待审批',
+            'create_time' => $now, 'update_time' => $now,
+        ]);
+        return resultArray(['data' => ['approval_id' => $id, 'note' => '未审批不得据此计算奖金']]);
+    }
+
+    /** 审批决定（approve/reject；本人回避） */
+    public function approvalDecide()
+    {
+        $param = $this->param; $userInfo = $this->userInfo;
+        $id = (int)($param['approval_id'] ?? 0);
+        $decision = trim((string)($param['decision'] ?? ''));
+        if ($id <= 0 || !in_array($decision, ['approve','reject'], true)) return resultArray(['error' => '参数错误']);
+        $a = Db::name('policy_approval')->where(['approval_id' => $id])->find();
+        if (!$a) return resultArray(['error' => '审批记录不存在']);
+        if ($a['result'] !== '待审批') return resultArray(['error' => '该审批已处理']);
+        if ((int)$a['applicant_user_id'] === (int)$userInfo['id']) return resultArray(['error' => '本人回避：不能审批自己提交的申请']);
+        $newResult = $decision === 'approve' ? '已通过' : '已驳回';
+        Db::name('policy_approval')->where(['approval_id' => $id])->update([
+            'result' => $newResult, 'approver_user_id' => (int)$userInfo['id'],
+            'approve_note' => trim((string)($param['approve_note'] ?? '')), 'approve_time' => time(), 'update_time' => time(),
+        ]);
+        return resultArray(['data' => ['approval_id' => $id, 'result' => $newResult]]);
+    }
+
+    /** 检查某项目某类型审批是否已通过（门禁） */
+    public function approvalCheck()
+    {
+        $param = $this->param;
+        $type = trim((string)($param['approval_type'] ?? ''));
+        $ref = trim((string)($param['source_ref'] ?? ''));
+        $approved = Db::name('policy_approval')->where(['approval_type' => $type, 'source_ref' => $ref, 'result' => '已通过'])->find();
+        return resultArray(['data' => ['approved' => $approved ? true : false, 'note' => $approved ? '审批已通过' : '未审批通过，不得据此计算']]);
+    }
+
+    /** 3. 阶段奖励抵扣结算：最终应发=最终份额-已领取阶段奖励（最低0） */
+    public function stageOffsetCalc()
+    {
+        $param = $this->param; $userInfo = $this->userInfo;
+        $userId = (int)($param['user_id'] ?? 0);
+        $finalShare = (float)($param['final_share'] ?? 0);
+        $projectRef = (string)($param['project_ref'] ?? '');
+        $batchId = (int)($param['batch_id'] ?? 0);
+        if ($userId <= 0 || $finalShare < 0) return resultArray(['error' => '参数错误']);
+        // 查该用户在该项目已领取的预发阶段奖励（有效联系至明确项目类，非基础核实）
+        $stageTypes = ['经销商有效联系','经销商正式交流','经销商明确项目','医院有效联系','医院正式演示或拜访','医院明确项目','外包正式需求沟通','外包方案或报价'];
+        $offsetTotal = (float)Db::name('reward_candidate')
+            ->where('user_id', $userId)->whereIn('source_type', $stageTypes)
+            ->whereIn('status', ['已通过','已结算'])->sum('amount');
+        $netPayable = max(0, round($finalShare - $offsetTotal, 2));
+        $now = time();
+        $id = Db::name('stage_offset')->insertGetId([
+            'batch_id' => $batchId, 'user_id' => $userId, 'project_ref' => $projectRef,
+            'final_share' => $finalShare, 'offset_total' => $offsetTotal, 'net_payable' => $netPayable,
+            'detail_json' => json_encode(['final_share' => $finalShare, 'offset' => $offsetTotal, 'net' => $netPayable], JSON_UNESCAPED_UNICODE),
+            'create_user_id' => (int)$userInfo['id'], 'create_time' => $now,
+        ]);
+        return resultArray(['data' => ['offset_id' => $id, 'final_share' => $finalShare, 'offset_total' => $offsetTotal, 'net_payable' => $netPayable, 'note' => '最低为0，不得重复抵扣']]);
+    }
+
+    /** 4. 付款到账记录 */
+    public function paymentRecord()
+    {
+        $param = $this->param; $userInfo = $this->userInfo;
+        $projectRef = trim((string)($param['project_ref'] ?? ''));
+        if ($projectRef === '') return resultArray(['error' => '项目引用不能为空']);
+        $now = time();
+        $id = Db::name('payment_tracking')->insertGetId([
+            'project_ref' => $projectRef, 'payment_type' => trim((string)($param['payment_type'] ?? '')),
+            'amount' => (float)($param['amount'] ?? 0), 'received_amount' => 0, 'status' => '待确认',
+            'create_time' => $now, 'update_time' => $now,
+        ]);
+        return resultArray(['data' => ['payment_id' => $id]]);
+    }
+
+    /** 确认付款到账（确认后允许暂发50%） */
+    public function paymentConfirm()
+    {
+        $param = $this->param; $userInfo = $this->userInfo;
+        $id = (int)($param['payment_id'] ?? 0);
+        if ($id <= 0) return resultArray(['error' => '参数错误']);
+        $pm = Db::name('payment_tracking')->where(['payment_id' => $id])->find();
+        if (!$pm) return resultArray(['error' => '付款记录不存在']);
+        Db::name('payment_tracking')->where(['payment_id' => $id])->update([
+            'received_amount' => (float)($param['received_amount'] ?? $pm['amount']),
+            'received_time' => time(), 'confirmed_by' => (int)$userInfo['id'],
+            'status' => '已到账', 'update_time' => time(),
+        ]);
+        $canRelease50 = ($pm['payment_type'] === '首付款' && (float)($param['received_amount'] ?? 0) > 0);
+        return resultArray(['data' => ['payment_id' => $id, 'status' => '已到账', 'can_release_50pct' => $canRelease50, 'note' => $canRelease50 ? '首付款到账，可暂发业务获取奖励50%' : '']]);
     }
 }
