@@ -13,16 +13,15 @@ class OpportunityService
     const TYPE_HOSPITAL  = '医院';
     const TYPE_OUTSOURCE = '外包';
 
-    const STAGE_DEALER    = ['初步接触', '首项目签约', '首期回款'];
-    const STAGE_HOSPITAL  = ['接触评估', '立项', '签约', '上线交付'];
-    const STAGE_OUTSOURCE = ['需求沟通', '方案报价', '签约', '交付'];
+    const STAGE_DEALER    = ['基础核实', '有效联系', '正式交流', '明确项目', '首个项目回款'];
+    const STAGE_HOSPITAL  = ['基础核实', '有效联系', '正式演示或拜访', '明确项目', '签约回款'];
+    const STAGE_OUTSOURCE = ['基础核实', '正式需求沟通', '方案或报价', '签约并收到首付款', '新增付费需求'];
 
-    /** 固定阶段奖励（元）。制度口径：外包正式需求沟通、方案或报价均为 200 元。 */
+    /** 固定阶段奖励（V1.6 §35-37）。基础核实30/50/50不抵扣；有效联系至明确项目为预发抵扣； */
     private static $rewards = [
-        self::TYPE_OUTSOURCE => ['需求沟通' => 200.00, '方案报价' => 200.00],
-        // 经销商首期回款、医院等阶段奖励未在给定制度口径中明确，默认 0，待产品确认后配置
-        self::TYPE_DEALER    => [],
-        self::TYPE_HOSPITAL  => [],
+        self::TYPE_DEALER    => ['基础核实' => 30.00, '有效联系' => 200.00, '正式交流' => 500.00, '明确项目' => 1000.00],
+        self::TYPE_HOSPITAL  => ['基础核实' => 50.00, '有效联系' => 300.00, '正式演示或拜访' => 800.00, '明确项目' => 1500.00],
+        self::TYPE_OUTSOURCE => ['基础核实' => 50.00, '正式需求沟通' => 200.00, '方案或报价' => 500.00],
     ];
 
     public static function dictionary()

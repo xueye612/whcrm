@@ -25,12 +25,26 @@ class RewardService
     const HOSPITAL_EXPENSE_PCT_MAX = 3.00;       // 同池：合规商务拓展费用 上限3%
     const HOSPITAL_POOL_PCT = 5.00;              // 自主签单医院 综合池 5%
 
-    /** 固定建议金额（元），按来源/岗位。 */
+    /** 固定建议金额（元），按来源/岗位/阶段。V1.6 §33-37 全量。 */
     const FIXED_AMOUNTS = [
+        // 岗位/角色固定
         '客户成功工程师' => 900.00,
         '驻场服务专员'  => 900.00,
-        '外包需求沟通'  => 200.00,
-        '外包方案报价'  => 200.00,
+        // 基础核实即时奖励（不抵扣，计入800元月度专项审批）
+        '经销商基础核实' => 30.00,
+        '医院基础核实'   => 50.00,
+        '外包基础核实'   => 50.00,
+        // 经销商阶段（§35，预发抵扣）
+        '经销商有效联系' => 200.00,
+        '经销商正式交流' => 500.00,
+        '经销商明确项目' => 1000.00,
+        // 医院阶段（§36，预发抵扣）
+        '医院有效联系'   => 300.00,
+        '医院正式演示或拜访' => 800.00,
+        '医院明确项目'   => 1500.00,
+        // 外包阶段（§37，预发抵扣）
+        '外包正式需求沟通' => 200.00,
+        '外包方案或报价' => 500.00,
     ];
 
     private static $statuses = [self::ST_PENDING, self::ST_SPECIAL, self::ST_APPROVED, self::ST_REJECTED, self::ST_SETTLED, self::ST_OFFSET];
@@ -111,13 +125,17 @@ class RewardService
         return $out;
     }
 
-    /** 单人当月奖励合计（待审核/待专项审批/已通过，按候选人 user_id） */
+    /** 仅统计基础核实类（经销商30/家、医院50/家、外包50/项）的当月合计，用于800元专项审批判定。
+     *  不得统计 900/900/200/200、阶段奖励、项目奖金或其他候选。 */
+    private static $basicVerifySources = ['经销商基础核实', '医院基础核实', '外包基础核实'];
+
     public function monthlyRewardTotal($userId)
     {
         $start = strtotime(date('Y-m-01'));
         $end = strtotime('+1 month', $start);
         return (float)Db::name('reward_candidate')
             ->where('user_id', (int)$userId)
+            ->whereIn('source_type', self::$basicVerifySources)
             ->whereIn('status', [self::ST_PENDING, self::ST_SPECIAL, self::ST_APPROVED])
             ->where('create_time', '>=', $start)->where('create_time', '<', $end)
             ->sum('amount');

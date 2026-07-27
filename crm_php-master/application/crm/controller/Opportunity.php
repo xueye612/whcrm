@@ -137,17 +137,19 @@ class Opportunity extends ApiCommon
                 'evidence_note' => trim((string)($param['evidence_note'] ?? '')), 'rules_version' => 'v1',
                 'status' => $rewardStatus, 'create_user_id' => (int)$userInfo['id'], 'create_time' => $now, 'update_time' => $now,
             ]);
-            $expId = Db::name('business_expense')->insertGetId([
-                'source_ref' => 'opp:' . $oppId, 'subject' => '医院5%综合池-合规商务拓展费用(上限3%)',
-                'amount' => $pool['expense_max'], 'external_party' => trim((string)($param['external_party'] ?? '')),
-                'agreement_status' => '待补充', 'compliance_confirmed' => 0, 'status' => '待审批',
-                'create_user_id' => (int)$userInfo['id'], 'create_time' => $now, 'update_time' => $now,
-            ]);
+            // 3% 仅为合规商务费用预算上限，不自动生成实际费用。
+            // 实际费用须通过 expenseSave 单独申请，附预算/事项/审批/外部主体/协议凭据/合规确认。
+            // 未发生部分不得转为员工奖励。严禁向医院工作人员/采购/决策人员设计私人利益输送。
             Db::commit();
         } catch (\Exception $e) {
             Db::rollback();
             return resultArray(['error' => '综合池分账失败：' . $e->getMessage()]);
         }
-        return resultArray(['data' => ['opp_id' => $oppId, 'reward_candidate_id' => $candId, 'business_expense_id' => $expId, 'pool' => $pool, 'reward_status' => $rewardStatus]]);
+        return resultArray(['data' => [
+            'opp_id' => $oppId, 'reward_candidate_id' => $candId,
+            'pool' => $pool, 'reward_status' => $rewardStatus,
+            'expense_budget_ceiling' => $pool['expense_max'],
+            'note' => '3%仅为合规商务费用预算上限，不自动生成实际费用；实际费用须单独申请并附凭据；未发生不得转奖金',
+        ]]);
     }
 }

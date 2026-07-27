@@ -14,15 +14,39 @@ class OutsourceService
     const LEVEL_1 = '一级'; const LEVEL_2 = '二级'; const LEVEL_3 = '三级'; const LEVEL_4 = '四级';
     private static $levels = [self::LEVEL_1, self::LEVEL_2, self::LEVEL_3, self::LEVEL_4];
 
-    /** 实施三级默认分配比例（角色=>%）。已确认口径：
-     *  技术与项目负责人 40% / 客户成功工程师 28% / 研发负责人 25% / 总经理兼产品负责人 5% / 市场运营专员 2%。 */
-    const DEFAULT_DIST = [
-        ['role' => '技术与项目负责人', 'percentage' => 40],
-        ['role' => '客户成功工程师', 'percentage' => 28],
-        ['role' => '研发负责人', 'percentage' => 25],
-        ['role' => '总经理兼产品负责人', 'percentage' => 5],
-        ['role' => '市场运营专员', 'percentage' => 2],
+    /** 外包交付等级比例（基于可分配毛利，V1.6 §46） */
+    const DELIVERY_PCT = [
+        self::LEVEL_1 => 15.0,
+        self::LEVEL_2 => 20.0,
+        self::LEVEL_3 => 25.0,
+        self::LEVEL_4 => 30.0,
     ];
+    const DELIVERY_CAP_PCT = 15.0;  // 交付奖金池不得超过实际到账收入15%
+    const BUSINESS_ACQ_PCT = 8.0;   // 外包业务获取奖金池 = 可分配毛利×8%
+
+    /** 外包标准岗位分配（V1.6 §47，与P1自有产品40/28/25/5/2不同） */
+    const DEFAULT_DIST = [
+        ['role' => '技术与项目负责人', 'percentage' => 42],
+        ['role' => '研发负责人', 'percentage' => 38],
+        ['role' => '总经理兼产品负责人', 'percentage' => 10],
+        ['role' => '客户成功工程师', 'percentage' => 5],
+        ['role' => '市场运营专员', 'percentage' => 5],
+    ];
+
+    /** 外包业务获取奖金池 = 可分配毛利 × 8% */
+    public static function businessAcqPool($grossMargin)
+    {
+        return round((float)$grossMargin * self::BUSINESS_ACQ_PCT / 100, 2);
+    }
+
+    /** 外包交付奖金池 = 可分配毛利 × 交付等级%，且不超过实际到账收入×15% */
+    public static function deliveryPool($grossMargin, $revenue, $deliveryLevel)
+    {
+        $pct = isset(self::DELIVERY_PCT[$deliveryLevel]) ? self::DELIVERY_PCT[$deliveryLevel] : 15.0;
+        $pool = round((float)$grossMargin * $pct / 100, 2);
+        $cap = round((float)$revenue * self::DELIVERY_CAP_PCT / 100, 2);
+        return ['delivery_pool' => min($pool, $cap), 'level_pct' => $pct, 'capped' => $pool > $cap];
+    }
 
     const DEFAULT_REWARD_PCT = 2.00;  // 自主签单/外包 奖励池默认 2%
     const DEFAULT_EXPENSE_PCT = 3.00; // 合规商务费用池默认 3%
@@ -47,9 +71,10 @@ class OutsourceService
     {
         return [
             'delivery_levels' => self::$levels,
+            'delivery_level_pct' => self::DELIVERY_PCT,
+            'delivery_cap_pct' => self::DELIVERY_CAP_PCT,
+            'business_acq_pct' => self::BUSINESS_ACQ_PCT,
             'default_distribution' => self::DEFAULT_DIST,
-            'default_reward_pct' => self::DEFAULT_REWARD_PCT,
-            'default_expense_pct' => self::DEFAULT_EXPENSE_PCT,
             'payout_rhythm' => ['phase1_deliver_pct' => self::PAYOUT_PHASE1_PCT, 'phase2_accept_pct' => self::PAYOUT_PHASE2_PCT],
         ];
     }

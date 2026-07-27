@@ -41,9 +41,14 @@ class Reward extends ApiCommon
         if ($sourceType === '' || $userId <= 0) return resultArray(['error' => '来源类型与候选人为必填']);
         $amount = ($param['amount'] ?? '') !== '' ? (float)$param['amount'] : RewardService::fixedAmount($sourceType);
         if ($amount <= 0) return resultArray(['error' => '金额必须大于0（或使用制度固定金额来源）']);
-        // 制度口径：每人每月合计超过 800 元 → 待专项审批（不阻塞、不误判为未知上限）
+        // 制度口径：仅基础核实类(经销商30/医院50/外包50)合计超过800元/人/月→待专项审批
+        // 900/900/200/200、阶段奖励、项目奖金等不得触发该专项审批
         $s = new RewardService();
-        list($needSpecial, $usedMonth) = $s->checkMonthlyCap($userId, $amount);
+        $basicVerifyTypes = ['经销商基础核实', '医院基础核实', '外包基础核实'];
+        $needSpecial = false;
+        if (in_array($sourceType, $basicVerifyTypes, true)) {
+            list($needSpecial, $usedMonth) = $s->checkMonthlyCap($userId, $amount);
+        }
         $status = $needSpecial ? RewardService::ST_SPECIAL : RewardService::ST_PENDING;
         $now = time();
         $id = Db::name('reward_candidate')->insertGetId([

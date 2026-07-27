@@ -52,11 +52,12 @@ class Outsource extends ApiCommon
         $revenue = (float)($param['revenue'] ?? 0);
         $directCost = (float)($param['direct_cost'] ?? 0);
         if ($revenue < 0 || $directCost < 0) return resultArray(['error' => '收入与成本不能为负']);
-        $rewardPct = ($param['reward_pct'] ?? '') !== '' ? (float)$param['reward_pct'] : OutsourceService::DEFAULT_REWARD_PCT;
-        $expensePct = ($param['expense_pct'] ?? '') !== '' ? (float)$param['expense_pct'] : OutsourceService::DEFAULT_EXPENSE_PCT;
 
         $margin = OutsourceService::computeMargin($revenue, $directCost);
-        $pools = OutsourceService::computePools($revenue, $rewardPct, $expensePct);
+        // V1.6 §45-46: 业务获取池=毛利×8%；交付池=毛利×交付等级%，且≤到账收入15%
+        $bizAcqPool = OutsourceService::businessAcqPool($margin);
+        $deliveryLevel = $level !== '' ? $level : OutsourceService::LEVEL_1;
+        $deliveryData = OutsourceService::deliveryPool($margin, $revenue, $deliveryLevel);
         $now = time();
 
         $exist = Db::name('outsource_project')->where(['work_id' => $workId])->find();
@@ -65,8 +66,8 @@ class Outsource extends ApiCommon
             'requirement_baseline' => (string)($param['requirement_baseline'] ?? ''),
             'scope_change' => (string)($param['scope_change'] ?? ''),
             'revenue' => $revenue, 'direct_cost' => $directCost, 'gross_margin' => $margin,
-            'reward_pct' => $rewardPct, 'expense_pct' => $expensePct,
-            'reward_pool' => $pools['reward_pool'], 'expense_pool' => $pools['expense_pool'],
+            'reward_pct' => $deliveryData['level_pct'], 'expense_pct' => OutsourceService::BUSINESS_ACQ_PCT,
+            'reward_pool' => $deliveryData['delivery_pool'], 'expense_pool' => $bizAcqPool,
             'update_time' => $now,
         ];
         if ($exist) {
@@ -76,7 +77,7 @@ class Outsource extends ApiCommon
             $row['create_user_id'] = (int)$userInfo['id']; $row['create_time'] = $now;
             $id = Db::name('outsource_project')->insertGetId($row);
         }
-        return resultArray(['data' => ['outsource_id' => $id, 'gross_margin' => $margin, 'reward_pool' => $pools['reward_pool'], 'expense_pool' => $pools['expense_pool']]]);
+        return resultArray(['data' => ['outsource_id' => $id, 'gross_margin' => $margin, 'delivery_pool' => $deliveryData['delivery_pool'], 'business_acq_pool' => $bizAcqPool, 'delivery_capped' => $deliveryData['capped'], 'delivery_level_pct' => $deliveryData['level_pct']]]);
     }
 
     public function projectRead()
