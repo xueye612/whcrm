@@ -27,6 +27,22 @@ class OutsourceService
     const DEFAULT_REWARD_PCT = 2.00;  // 自主签单/外包 奖励池默认 2%
     const DEFAULT_EXPENSE_PCT = 3.00; // 合规商务费用池默认 3%
 
+    /** P4 外包 70/30 发放节奏（制度已确认）：交付阶段 70%、验收/稳定期 30% */
+    const PAYOUT_PHASE1_PCT = 70.00;  // 交付阶段发放
+    const PAYOUT_PHASE2_PCT = 30.00;  // 验收/稳定期发放
+
+    /** 按 70/30 发放节奏拆分奖池金额 */
+    public static function payoutSplit($rewardPool)
+    {
+        $pool = (float)$rewardPool;
+        return [
+            'phase1_deliver' => round($pool * self::PAYOUT_PHASE1_PCT / 100, 2),
+            'phase2_accept' => round($pool * self::PAYOUT_PHASE2_PCT / 100, 2),
+            'phase1_pct' => self::PAYOUT_PHASE1_PCT,
+            'phase2_pct' => self::PAYOUT_PHASE2_PCT,
+        ];
+    }
+
     public static function dictionary()
     {
         return [
@@ -34,6 +50,7 @@ class OutsourceService
             'default_distribution' => self::DEFAULT_DIST,
             'default_reward_pct' => self::DEFAULT_REWARD_PCT,
             'default_expense_pct' => self::DEFAULT_EXPENSE_PCT,
+            'payout_rhythm' => ['phase1_deliver_pct' => self::PAYOUT_PHASE1_PCT, 'phase2_accept_pct' => self::PAYOUT_PHASE2_PCT],
         ];
     }
 

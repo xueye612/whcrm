@@ -41,10 +41,10 @@ class Reward extends ApiCommon
         if ($sourceType === '' || $userId <= 0) return resultArray(['error' => '来源类型与候选人为必填']);
         $amount = ($param['amount'] ?? '') !== '' ? (float)$param['amount'] : RewardService::fixedAmount($sourceType);
         if ($amount <= 0) return resultArray(['error' => '金额必须大于0（或使用制度固定金额来源）']);
-        // 月度上限：已配置则校验，未配置则不启用（不伪装已执行）
+        // 制度口径：每人每月合计超过 800 元 → 待专项审批（不阻塞、不误判为未知上限）
         $s = new RewardService();
-        list($capOk, $capVal, $capErr) = $s->checkMonthlyCap($userId, $amount);
-        if (!$capOk) return resultArray(['error' => $capErr]);
+        list($needSpecial, $usedMonth) = $s->checkMonthlyCap($userId, $amount);
+        $status = $needSpecial ? RewardService::ST_SPECIAL : RewardService::ST_PENDING;
         $now = time();
         $id = Db::name('reward_candidate')->insertGetId([
             'source_type' => $sourceType,
@@ -54,10 +54,10 @@ class Reward extends ApiCommon
             'reason' => trim((string)($param['reason'] ?? '')),
             'evidence_note' => trim((string)($param['evidence_note'] ?? '')),
             'rules_version' => (string)($param['rules_version'] ?? 'v1'),
-            'status' => RewardService::ST_PENDING,
+            'status' => $status,
             'create_user_id' => (int)$userInfo['id'], 'create_time' => $now, 'update_time' => $now,
         ]);
-        return resultArray(['data' => ['cand_id' => $id, 'amount' => $amount]]);
+        return resultArray(['data' => ['cand_id' => $id, 'amount' => $amount, 'status' => $status, 'monthly_used' => $usedMonth, 'monthly_cap' => RewardService::MONTHLY_CAP]]);
     }
 
     public function candidateList()
@@ -80,7 +80,9 @@ class Reward extends ApiCommon
         if (!in_array($decision, ['approve', 'reject'], true)) return resultArray(['error' => 'decision 必须为 approve/reject']);
         $c = Db::name('reward_candidate')->where(['cand_id' => $candId])->find();
         if (!$c) return resultArray(['error' => '候选不存在']);
-        if ($c['status'] !== RewardService::ST_PENDING) return resultArray(['error' => '仅待审核候选可审核']);
+        if (!in_array($c['status'], [RewardService::ST_PENDING, RewardService::ST_SPECIAL], true)) {
+            return resultArray(['error' => '仅待审核/待专项审批候选可审核']);
+        }
         if (!RewardService::assertNotSelf($c['user_id'], $userInfo['id'])) return resultArray(['error' => '本人回避：不能审核自己的奖励候选']);
         $newStatus = $decision === 'approve' ? RewardService::ST_APPROVED : RewardService::ST_REJECTED;
         Db::name('reward_candidate')->where(['cand_id' => $candId])->update([
@@ -165,7 +167,7 @@ class Reward extends ApiCommon
     {
         $param = $this->param; $userInfo = $this->userInfo;
         $key = trim((string)($param['config_key'] ?? ''));
-        $allowKeys = ['monthly_cap_amount', 'dealer_first_payment_reward', 'hospital_stage_rewards', 'outsource_pool_split'];
+        $allowKeys = ['dealer_first_payment_reward', 'outsource_business_pool_pct', 'outsource_revenue_cap'];
         if (!in_array($key, $allowKeys, true)) return resultArray(['error' => '不支持的配置项']);
         RewardService::setConfig($key, $param['config_value'] ?? null, $userInfo['id']);
         return resultArray(['data' => ['config_key' => $key, 'config' => RewardService::configStatus()]]);

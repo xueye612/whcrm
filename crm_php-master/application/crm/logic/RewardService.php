@@ -13,10 +13,17 @@ use think\Db;
 class RewardService
 {
     const ST_PENDING = '待审核';
+    const ST_SPECIAL = '待专项审批';   // 制度口径：每人每月合计超过 800 元进入专项审批
     const ST_APPROVED = '已通过';
     const ST_REJECTED = '已驳回';
     const ST_SETTLED = '已结算';
     const ST_OFFSET  = '已冲销';
+
+    /** 制度已确认阈值/比例（非“待配置”） */
+    const MONTHLY_CAP = 800.00;                  // 每人每月合计超过此值 → 专项审批
+    const HOSPITAL_REWARD_PCT = 2.00;            // 自主签单医院 5%综合池：内部业务获取奖励 上限2%
+    const HOSPITAL_EXPENSE_PCT_MAX = 3.00;       // 同池：合规商务拓展费用 上限3%
+    const HOSPITAL_POOL_PCT = 5.00;              // 自主签单医院 综合池 5%
 
     /** 固定建议金额（元），按来源/岗位。 */
     const FIXED_AMOUNTS = [
@@ -26,12 +33,17 @@ class RewardService
         '外包方案报价'  => 200.00,
     ];
 
-    private static $statuses = [self::ST_PENDING, self::ST_APPROVED, self::ST_REJECTED, self::ST_SETTLED, self::ST_OFFSET];
+    private static $statuses = [self::ST_PENDING, self::ST_SPECIAL, self::ST_APPROVED, self::ST_REJECTED, self::ST_SETTLED, self::ST_OFFSET];
     private static $reviewDecisions = ['approve', 'reject'];
 
     public static function dictionary()
     {
-        return ['fixed_amounts' => self::FIXED_AMOUNTS, 'statuses' => self::$statuses];
+        return [
+            'fixed_amounts' => self::FIXED_AMOUNTS,
+            'statuses' => self::$statuses,
+            'monthly_cap' => self::MONTHLY_CAP,
+            'hospital_pool' => ['pool_pct' => self::HOSPITAL_POOL_PCT, 'reward_pct' => self::HOSPITAL_REWARD_PCT, 'expense_pct_max' => self::HOSPITAL_EXPENSE_PCT_MAX],
+        ];
     }
 
     /** 读取可配置项；未配置返回 null（调用方须按“待配置”处理，不得编造） */
@@ -54,10 +66,10 @@ class RewardService
         return true;
     }
 
-    /** 全部配置项状态（值或“待配置”） */
+    /** 全部配置项状态（值或“待配置”）；仅保留制度确无数值的项，已确认阈值/比例不入此表 */
     public static function configStatus()
     {
-        $keys = ['monthly_cap_amount', 'dealer_first_payment_reward', 'hospital_stage_rewards', 'outsource_pool_split'];
+        $keys = ['dealer_first_payment_reward', 'outsource_business_pool_pct', 'outsource_revenue_cap'];
         $out = [];
         foreach ($keys as $k) {
             $v = self::getConfig($k);
@@ -66,15 +78,15 @@ class RewardService
         return $out;
     }
 
-    /** 月度上限是否已配置并校验：返回 [ok, capAmount|null, error] */
+    /**
+     * 月度专项审批判定：每人每月合计（已通过+待审+本笔）超过 800 元 → 需专项审批。
+     * 返回 [needSpecial bool, usedAmount float]。
+     */
     public function checkMonthlyCap($userId, $addAmount)
     {
-        $cap = self::getConfig('monthly_cap_amount');
-        if ($cap === null) return [true, null, '']; // 未配置=不启用硬限制（不伪装已执行）
-        $cap = (float)$cap;
         $used = $this->monthlyRewardTotal($userId);
-        if ($used + (float)$addAmount > $cap) return [false, $cap, '超出单人月度奖励上限'];
-        return [true, $cap, ''];
+        $needSpecial = ($used + (float)$addAmount) > self::MONTHLY_CAP;
+        return [$needSpecial, $used];
     }
 
     public static function fixedAmount($sourceType)
@@ -97,5 +109,17 @@ class RewardService
         }
         $out['approved_amount'] = (float)Db::name('reward_candidate')->where(['status' => self::ST_APPROVED])->sum('amount');
         return $out;
+    }
+
+    /** 单人当月奖励合计（待审核/待专项审批/已通过，按候选人 user_id） */
+    public function monthlyRewardTotal($userId)
+    {
+        $start = strtotime(date('Y-m-01'));
+        $end = strtotime('+1 month', $start);
+        return (float)Db::name('reward_candidate')
+            ->where('user_id', (int)$userId)
+            ->whereIn('status', [self::ST_PENDING, self::ST_SPECIAL, self::ST_APPROVED])
+            ->where('create_time', '>=', $start)->where('create_time', '<', $end)
+            ->sum('amount');
     }
 }

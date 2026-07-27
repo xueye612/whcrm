@@ -540,6 +540,7 @@ return [
     'crm/opportunity/oppRead'     => ['crm/opportunity/oppRead',     ['method' => 'POST']],
     'crm/opportunity/oppList'     => ['crm/opportunity/oppList',     ['method' => 'POST']],
     'crm/opportunity/stageAdvance'=> ['crm/opportunity/stageAdvance',['method' => 'POST']],
+    'crm/opportunity/hospitalPoolSet'=> ['crm/opportunity/hospitalPoolSet',['method' => 'POST']],
     // ===== P5 奖励候选与商务费用（20260727）=====
     'crm/reward/dictionary'   => ['crm/reward/dictionary',  ['method' => 'POST']],
     'crm/reward/candidateSave'=> ['crm/reward/candidateSave',['method' => 'POST']],

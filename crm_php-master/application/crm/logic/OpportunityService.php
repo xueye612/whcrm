@@ -58,6 +58,22 @@ class OpportunityService
     }
 
     /**
+     * 自主签单医院 5% 综合池分账（制度已确认）：
+     *   内部业务获取奖励 = 收入 × 2%（进入 reward_candidate，人工审核）
+     *   合规商务拓展费用上限 = 收入 × 3%（进入独立 business_expense，需预算/事项/审批/凭据）
+     * 返回 ['reward_amount'=>, 'expense_max'=>, 'pool_total'=>]
+     */
+    public static function hospitalPool($revenue)
+    {
+        $rev = (float)$revenue;
+        return [
+            'pool_total' => round($rev * 0.05, 2),
+            'reward_amount' => round($rev * 0.02, 2),
+            'expense_max' => round($rev * 0.03, 2),
+        ];
+    }
+
+    /**
      * 重复奖励防护：同一机会同一阶段只能推进一次。
      * 返回 [bool ok, string error]。
      */

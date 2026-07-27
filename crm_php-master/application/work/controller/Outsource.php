@@ -107,16 +107,22 @@ class Outsource extends ApiCommon
         $row = Db::name('outsource_project')->where(['work_id' => $workId])->find();
         if (!$row) return resultArray(['error' => '请先保存外包项目档案']);
         $pool = (float)$row['reward_pool'];
-        $dist = OutsourceService::distribute($pool, $ratios);
+        // P4 70/30 发放节奏：交付阶段(phase1)按比例分配 70%，验收/稳定期(phase2) 30% 待验收后发放
+        $payout = OutsourceService::payoutSplit($pool);
+        $dist = OutsourceService::distribute($payout['phase1_deliver'], $ratios);
         $now = time();
-        // 覆盖式写入：先删旧再插新（同一来源）
+        // 覆盖式写入：先删旧再插新（同一来源）—— 本次按 70% 交付阶段计入
         Db::name('reward_distribution')->where(['source_type' => '外包项目', 'source_id' => $workId])->delete();
         $insert = [];
         foreach ($dist['rows'] as $r) {
             $insert[] = ['source_type' => '外包项目', 'source_id' => $workId, 'role_name' => $r['role'], 'percentage' => $r['percentage'], 'amount' => $r['amount'], 'create_user_id' => (int)$userInfo['id'], 'create_time' => $now];
         }
         if ($insert) Db::name('reward_distribution')->insertAll($insert);
-        return resultArray(['data' => ['rows' => $dist['rows'], 'unallocated' => $dist['unallocated'], 'allocated_pct' => $dist['allocated_pct']]]);
+        return resultArray(['data' => [
+            'rows' => $dist['rows'], 'unallocated' => $dist['unallocated'], 'allocated_pct' => $dist['allocated_pct'],
+            'payout_rhythm' => $payout,
+            'note' => '本次按交付阶段(70%)计入分配；验收/稳定期30%待验收后发放',
+        ]]);
     }
 
     public function distributeRead()

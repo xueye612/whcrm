@@ -125,6 +125,8 @@ class ProjectService
             'acceptance_result' => array_key_exists('acceptance_result', $data) ? $acceptResult : null,
             'risk_note'         => array_key_exists('risk_note', $data) ? trim((string)$data['risk_note']) : null,
             'stability_days'    => array_key_exists('stability_days', $data) && $data['stability_days'] !== '' ? max(0, (int)$data['stability_days']) : null,
+            'remote_support_hours' => array_key_exists('remote_support_hours', $data) && $data['remote_support_hours'] !== '' ? max(0, (float)$data['remote_support_hours']) : null,
+            'personnel_change'  => array_key_exists('personnel_change', $data) ? trim((string)$data['personnel_change']) : null,
         ];
         foreach (['plan_start_time','plan_end_time','actual_start_time','actual_end_time'] as $tf) {
             $in[$tf] = (array_key_exists($tf, $data) && $data[$tf] !== '') ? self::parseTime($data[$tf]) : null;
@@ -165,6 +167,8 @@ class ProjectService
                     'actual_start_time'=> $in['actual_start_time'] ?? 0,
                     'actual_end_time'=> $in['actual_end_time'] ?? 0,
                     'risk_note'      => $in['risk_note'] ?? '',
+                    'remote_support_hours' => $in['remote_support_hours'] ?? 0,
+                    'personnel_change' => $in['personnel_change'] ?? '',
                     'version'        => 1,
                     'create_user_id' => $userId,
                     'update_user_id' => $userId,

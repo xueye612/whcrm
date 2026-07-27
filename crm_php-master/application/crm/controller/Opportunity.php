@@ -14,7 +14,7 @@ class Opportunity extends ApiCommon
 {
     public function _initialize()
     {
-        $action = ['permission' => [''], 'allow' => ['dictionary']];
+        $action = ['permission' => [''], 'allow' => ['dictionary', 'hospitalpoolset']];
         Hook::listen('check_auth', $action);
         if (!in_array(strtolower(Request::instance()->action()), $action['permission'])) {
             parent::_initialize();
@@ -105,5 +105,49 @@ class Opportunity extends ApiCommon
             return resultArray(['error' => '该阶段已推进，不可重复计入奖励']);
         }
         return resultArray(['data' => ['opp_id' => $oppId, 'stage' => $stage, 'reward_amount' => $reward]]);
+    }
+
+    /**
+     * 自主签单医院 5%综合池分账：按到账收入生成 2% 内部奖励候选 + 最高3% 合规商务费用（事务）。
+     * 制度已确认：2% 进 reward_candidate 人工审核；3% 进独立 business_expense 需凭据/审批；不向医院工作人员支付私人费用。
+     */
+    public function hospitalPoolSet()
+    {
+        $param = $this->param; $userInfo = $this->userInfo;
+        $oppId = (int)($param['opp_id'] ?? 0);
+        $revenue = (float)($param['actual_revenue'] ?? 0);
+        if ($oppId <= 0) return resultArray(['error' => '参数错误']);
+        if ($revenue <= 0) return resultArray(['error' => '到账收入必须大于0']);
+        $opp = Db::name('opportunity')->where(['opp_id' => $oppId])->find();
+        if (!$opp) return resultArray(['error' => '机会不存在']);
+        if ($opp['source_type'] !== OpportunityService::TYPE_HOSPITAL) return resultArray(['error' => '仅医院机会适用 5%综合池分账']);
+        $pool = OpportunityService::hospitalPool($revenue);
+        $now = time();
+        $userId = (int)($param['reward_user_id'] ?? $opp['owner_user_id']);
+        // 月度800元专项审批判定（复用规则）
+        $rewardStatus = '待审核';
+        $used = (float)Db::name('reward_candidate')->where(['user_id' => $userId])->whereIn('status', ['待审核','待专项审批','已通过'])->sum('amount');
+        if ($used + $pool['reward_amount'] > \app\crm\logic\RewardService::MONTHLY_CAP) $rewardStatus = '待专项审批';
+
+        Db::startTrans();
+        try {
+            $candId = Db::name('reward_candidate')->insertGetId([
+                'source_type' => '医院自主签单奖励', 'source_ref' => 'opp:' . $oppId, 'user_id' => $userId,
+                'amount' => $pool['reward_amount'], 'reason' => '医院5%综合池-2%内部业务获取奖励',
+                'evidence_note' => trim((string)($param['evidence_note'] ?? '')), 'rules_version' => 'v1',
+                'status' => $rewardStatus, 'create_user_id' => (int)$userInfo['id'], 'create_time' => $now, 'update_time' => $now,
+            ]);
+            $expId = Db::name('business_expense')->insertGetId([
+                'source_ref' => 'opp:' . $oppId, 'subject' => '医院5%综合池-合规商务拓展费用(上限3%)',
+                'amount' => $pool['expense_max'], 'external_party' => trim((string)($param['external_party'] ?? '')),
+                'agreement_status' => '待补充', 'compliance_confirmed' => 0, 'status' => '待审批',
+                'create_user_id' => (int)$userInfo['id'], 'create_time' => $now, 'update_time' => $now,
+            ]);
+            Db::commit();
+        } catch (\Exception $e) {
+            Db::rollback();
+            return resultArray(['error' => '综合池分账失败：' . $e->getMessage()]);
+        }
+        return resultArray(['data' => ['opp_id' => $oppId, 'reward_candidate_id' => $candId, 'business_expense_id' => $expId, 'pool' => $pool, 'reward_status' => $rewardStatus]]);
     }
 }
