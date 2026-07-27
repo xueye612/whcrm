@@ -585,7 +585,12 @@ class IndexLogic extends Common
     public function getQueryDataSql($param)
     {
         $configModel = new \app\crm\model\ConfigData();
-        $configInfo = $configModel->getData();
+        $configInfo = $configModel->getConfigData();
+        // Fix: default to current month if start/end_time empty (prevents SQL syntax error)
+        if (empty($param['start_time']) || empty($param['end_time'])) {
+            $param['start_time'] = strtotime(date('Y-m-01'));
+            $param['end_time'] = time();
+        }
         $follow_day = $configInfo['follow_day'] ? : 0;
         $deal_day = $configInfo['deal_day'] ? : 0;
         //默认公海条件(没有负责人或已经到期)

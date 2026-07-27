@@ -80,7 +80,7 @@ class Message extends ApiCommon
     {
         $userInfo = $this->userInfo;
         $configDataModel = model('ConfigData');
-        $configData = $configDataModel->getData() ?: [];
+        $configData = $configDataModel->getConfigData() ?: [];
         $data = [];
         # 今日需联系线索
         $todayLeadsTime  = cache('todayLeadsTime'.$userInfo['id']);
@@ -526,7 +526,7 @@ class Message extends ApiCommon
         unset($param['isSub']);
         $contractModel = model('Contract');
         $configModel = new \app\crm\model\ConfigData();
-        $configInfo = $configModel->getData();
+        $configInfo = $configModel->getConfigData();
         $expireDay = $configInfo['contract_day'] ? : '7';
         // 合同到期不提醒
         if (empty($configInfo['contract_config'])) return resultArray(['data' => []]);
@@ -729,7 +729,7 @@ class Message extends ApiCommon
         # 处理到期合同
         if ($type == 'endContract') {
             $configModel = new \app\crm\model\ConfigData();
-            $configInfo  = $configModel->getData();
+            $configInfo  = $configModel->getConfigData();
             $expireDay   = $configInfo['contract_day'] ? : '7';
             
             $where['owner_user_id'] = $userId;

@@ -55,7 +55,7 @@ class ConfigData extends Common
 	 * @param  
 	 * @return                            
 	 */	
-	public function getData()
+	public function getConfigData()
 	{
 		$list = db('crm_config')->select();
         $data = [];

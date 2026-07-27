@@ -674,10 +674,13 @@ class Index extends ApiCommon
         $param = $this->param;
         $userInfo = $this->userInfo;
         $param['user_id'] = $param['user_id']?:$userInfo['id'];
-        $indexModel = new IndexLogic;
-        $data = $indexModel->ranking($param);
-        return resultArray(['data' => $data]);
-
+        try {
+            $indexModel = new IndexLogic;
+            $data = $indexModel->ranking($param);
+            return resultArray(['data' => $data]);
+        } catch (\Throwable $e) {
+            return resultArray(['error' => 'ranking: ' . get_class($e) . ': ' . $e->getMessage() . ' @ ' . basename($e->getFile()) . ':' . $e->getLine()]);
+        }
     }
 
     /**
@@ -688,9 +691,13 @@ class Index extends ApiCommon
         $param = $this->param;
         $userInfo = $this->userInfo;
         $param['user_id'] = $param['user_id']?:$userInfo['id'];
-        $indexModel = new IndexLogic;
-        $data = $indexModel->queryDataInfo($param);
-        return resultArray(['data' => $data]);
+        try {
+            $indexModel = new IndexLogic;
+            $data = $indexModel->queryDataInfo($param);
+            return resultArray(['data' => $data]);
+        } catch (\Throwable $e) {
+            return resultArray(['error' => 'queryDataInfo: ' . get_class($e) . ': ' . $e->getMessage() . ' @ ' . basename($e->getFile()) . ':' . $e->getLine()]);
+        }
     }
 
     /**
