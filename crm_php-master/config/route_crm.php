@@ -527,6 +527,37 @@ return [
     'crm/setting/oaNumber' => ['crm/setting/oaNumber', ['method' => 'POST']],
     'crm/setting/dingtalkTaskNotifyRead' => ['crm/setting/dingtalkTaskNotifyRead', ['method' => 'POST']],
     'crm/setting/dingtalkTaskNotifySave' => ['crm/setting/dingtalkTaskNotifySave', ['method' => 'POST']],
-    // MISS路由
+    // ===== P2 原始数据/有效线索（20260727）=====
+    'crm/leadpool/dictionary'  => ['crm/leadpool/dictionary',  ['method' => 'POST']],
+    'crm/leadpool/batchSave'   => ['crm/leadpool/batchSave',   ['method' => 'POST']],
+    'crm/leadpool/rawSave'     => ['crm/leadpool/rawSave',     ['method' => 'POST']],
+    'crm/leadpool/poolRead'    => ['crm/leadpool/poolRead',    ['method' => 'POST']],
+    'crm/leadpool/dedupeQuery' => ['crm/leadpool/dedupeQuery', ['method' => 'POST']],
+    'crm/leadpool/dedupeDecide'=> ['crm/leadpool/dedupeDecide',['method' => 'POST']],
+    // ===== P3 经销商/医院/外包机会（20260727）=====
+    'crm/opportunity/dictionary'  => ['crm/opportunity/dictionary',  ['method' => 'POST']],
+    'crm/opportunity/oppSave'     => ['crm/opportunity/oppSave',     ['method' => 'POST']],
+    'crm/opportunity/oppRead'     => ['crm/opportunity/oppRead',     ['method' => 'POST']],
+    'crm/opportunity/oppList'     => ['crm/opportunity/oppList',     ['method' => 'POST']],
+    'crm/opportunity/stageAdvance'=> ['crm/opportunity/stageAdvance',['method' => 'POST']],
+    // ===== P5 奖励候选与商务费用（20260727）=====
+    'crm/reward/dictionary'   => ['crm/reward/dictionary',  ['method' => 'POST']],
+    'crm/reward/candidateSave'=> ['crm/reward/candidateSave',['method' => 'POST']],
+    'crm/reward/candidateList'=> ['crm/reward/candidateList',['method' => 'POST']],
+    'crm/reward/review'       => ['crm/reward/review',      ['method' => 'POST']],
+    'crm/reward/batchCreate'  => ['crm/reward/batchCreate', ['method' => 'POST']],
+    'crm/reward/batchSettle'  => ['crm/reward/batchSettle', ['method' => 'POST']],
+    'crm/reward/offset'       => ['crm/reward/offset',      ['method' => 'POST']],
+    'crm/reward/expenseSave'  => ['crm/reward/expenseSave', ['method' => 'POST']],
+    'crm/reward/expenseList'  => ['crm/reward/expenseList', ['method' => 'POST']],
+    // ===== P6 季度绩效（20260727）=====
+    'crm/performance/dictionary'  => ['crm/performance/dictionary', ['method' => 'POST']],
+    'crm/performance/summarySave' => ['crm/performance/summarySave',['method' => 'POST']],
+    'crm/performance/summaryRead' => ['crm/performance/summaryRead',['method' => 'POST']],
+    'crm/performance/summaryList' => ['crm/performance/summaryList',['method' => 'POST']],
+    'crm/performance/rate'        => ['crm/performance/rate',      ['method' => 'POST']],
+    'crm/performance/caseSave'    => ['crm/performance/caseSave',  ['method' => 'POST']],
+    'crm/performance/caseList'    => ['crm/performance/caseList',  ['method' => 'POST']],
+    // MISS璺敱
     '__miss__' => 'admin/base/miss',
 ];

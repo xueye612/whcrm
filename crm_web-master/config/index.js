@@ -10,9 +10,10 @@ module.exports = {
     assetsSubDirectory: 'static',
     assetsPublicPath: '/',
     proxyTable: (() => {
-      // 默认本地调试地址，如果 dev.env.js 中未配置 PROXY_TARGET，则使用此处的默认值
-      // 请将其修改为您的本地后端地址或远程调试地址
-      const apiProxyTarget = process.env.PROXY_TARGET || 'https://s.u956.com'
+      // 本地调试后端地址：通过环境变量 CRM_PROXY_TARGET 指定，例如 PowerShell:
+      //   $env:CRM_PROXY_TARGET='<本机后端地址>'; npm run dev
+      // 未设置时默认使用线上地址
+      const apiProxyTarget = process.env.CRM_PROXY_TARGET || process.env.PROXY_TARGET || 'https://s.u956.com'
       return {
         '/api': {
           target: apiProxyTarget,

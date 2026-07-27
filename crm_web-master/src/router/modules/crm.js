@@ -220,6 +220,23 @@ export default [
         icon: 'product'
       }
     }]
+  },
+  // ===== P2 线索池 / P3 行业机会 / P5 奖励候选 / P6 季度绩效 =====
+  {
+    ...layout({ permissions: ['crm', 'leadpool', 'poolread'] }),
+    children: [{ path: 'leadpool', component: () => import('@/views/crm/leadpool'), meta: { title: '线索池', icon: 'record' } }]
+  },
+  {
+    ...layout({ permissions: ['crm', 'opportunity', 'opplist'] }),
+    children: [{ path: 'opportunity', component: () => import('@/views/crm/opportunity'), meta: { title: '行业机会', icon: 'business' } }]
+  },
+  {
+    ...layout({ permissions: ['crm', 'reward', 'candidatelist'] }),
+    children: [{ path: 'reward', component: () => import('@/views/crm/reward'), meta: { title: '奖励候选', icon: 'money' } }]
+  },
+  {
+    ...layout({ permissions: ['crm', 'performance', 'summarylist'] }),
+    children: [{ path: 'performance', component: () => import('@/views/crm/performance'), meta: { title: '季度绩效', icon: 'results' } }]
   }
 ]
 

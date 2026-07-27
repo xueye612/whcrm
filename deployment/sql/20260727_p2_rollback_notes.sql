@@ -1,0 +1,6 @@
+-- P2 回滚建议（仅策略，不自动执行 DROP/DELETE）
+-- 停止 P2 代码后可安全移除新增结构（不承载历史业务数据）：
+--   DROP TABLE IF EXISTS 5kcrm_lead_dedupe_log;
+--   DROP TABLE IF EXISTS 5kcrm_lead_raw;
+--   DROP TABLE IF EXISTS 5kcrm_lead_raw_batch;
+-- 本迁移未修改 crm_leads/crm_customer 等现有表结构；由 P2 代码实际写入的原始/查重记录不自动删除。

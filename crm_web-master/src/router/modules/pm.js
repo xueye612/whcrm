@@ -117,5 +117,14 @@ export default [
         icon: 'recycle-bin'
       }
     }]
+  },
+  // ===== P4 外包项目（权限链 work/outsource） =====
+  {
+    ...layout('/project', { permissions: ['work', 'outsource', 'projectread'] }),
+    children: [{
+      path: 'outsource',
+      component: () => import('@/views/pm/outsource'),
+      meta: { title: '外包项目', icon: 'project' }
+    }]
   }
 ]

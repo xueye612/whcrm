@@ -102,11 +102,14 @@
           <el-tab-pane
             label="归档任务"
             name="archiving-task"/>
+          <el-tab-pane
+            label="项目实施"
+            name="project-implementation"/>
         </el-tabs>
       </div>
     </div>
     <div class="content">
-      <keep-alive>
+      <keep-alive v-if="activeName !== 'project-implementation'">
         <component
           :is="showComponent"
           :condition-data="taskConditionObj"
@@ -114,6 +117,10 @@
           :show-type="tabShowType"
           :permission="permission"/>
       </keep-alive>
+      <project-implementation-panel
+        v-if="activeName === 'project-implementation'"
+        :work-id="work_id"
+        @refresh="getDetail"/>
     </div>
 
     <!-- 筛选 -->
@@ -159,6 +166,7 @@ import Attachment from './components/Attachment'
 import TaskStatistical from './components/TaskStatistical'
 import ArchivingTask from './components/ArchivingTask'
 import ProjectSettings from './components/ProjectSettings'
+import ProjectImplementationPanel from './components/ProjectImplementationPanel'
 import TaskScreening from './components/TaskScreening'
 import Members from './components/Members'
 import TaskImport from '../components/TaskImport' // 任务导入
@@ -175,6 +183,7 @@ export default {
     TaskStatistical,
     ArchivingTask,
     ProjectSettings,
+    ProjectImplementationPanel,
     TaskScreening,
     Members,
     TaskImport,

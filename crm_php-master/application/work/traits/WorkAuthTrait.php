@@ -27,7 +27,7 @@ trait WorkAuthTrait
         $result = [];
 
         $isCreate = 0;
-        if (!empty($userId)) $isCreate = Db::name('work')->where('create_user_id', $userId)->value('create_user_id');
+        if (!empty($userId)) $isCreate = Db::name('work')->where(['work_id' => $workId, 'create_user_id' => $userId])->value('create_user_id');
 
         # 查询角色ID
         if (!empty($userId) && empty($groupId)) {

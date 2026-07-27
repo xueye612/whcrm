@@ -46,7 +46,16 @@ class work extends ApiCommon
                 'addusergroup',
                 'update',
                 'follow',
-                'updateWorkOrder'
+                'updateWorkOrder',
+                // P1 项目实施扩展（登录可访问；写操作内部用 checkWorkOperationAuth('setWork') 校验）
+                'implementationread',
+                'profileupdate',
+                'milestonesave',
+                'milestonedelete',
+                'contributionsave',
+                'contributiondelete',
+                'knowledgesave',
+                'knowledgedelete'
             ]
         ];
         Hook::listen('check_auth',$action);
@@ -671,6 +680,232 @@ class work extends ApiCommon
         $workLogic->setWorkOrder($workIds, $userInfo['id']);
 
         return resultArray(['data' => '操作成功！']);
+    }
+
+    // ======================= P1 项目实施扩展 =======================
+
+    /**
+     * 校验项目存在且当前用户有 setWork 管理权限。
+     * @return array [bool $ok, mixed $errorOrWorkId]
+     */
+    private function requireWorkManage($workId, $userId)
+    {
+        $workId = (int)$workId;
+        $userId = (int)$userId;
+        if ($workId <= 0) return [false, '参数错误'];
+        $work = Db::name('work')->where(['work_id' => $workId, 'ishidden' => 0])->find();
+        if (!$work) return [false, '项目不存在或已删除'];
+        if (!$this->checkWorkOperationAuth('setWork', $workId, $userId)) {
+            return [false, '无权操作该项目'];
+        }
+        return [true, $workId];
+    }
+
+    /** 读取项目实施档案、里程碑、成员贡献、知识链接与字典 */
+    public function implementationRead()
+    {
+        $param = $this->param;
+        $userInfo = $this->userInfo;
+        $workId = (int)($param['work_id'] ?? 0);
+        if ($workId <= 0) return resultArray(['error' => '参数错误']);
+        $work = Db::name('work')->where(['work_id' => $workId, 'ishidden' => 0])->find();
+        if (!$work) return resultArray(['error' => '项目不存在或已删除']);
+
+        $service = new \app\work\logic\ProjectService();
+        $profile = $service->getProfile($workId);
+        $milestones = Db::name('work_milestone')->where(['work_id' => $workId])->order('sort asc, milestone_id asc')->select();
+        $contributions = Db::name('work_member_contribution')->where(['work_id' => $workId])->order('contribution_id asc')->select();
+        $knowledge = Db::name('work_knowledge_link')->where(['work_id' => $workId])->order('sort asc, link_id asc')->select();
+
+        $canManage = $this->checkWorkOperationAuth('setWork', $workId, (int)$userInfo['id']);
+        return resultArray(['data' => [
+            'work_id'       => $workId,
+            'profile'       => $profile,
+            'milestones'    => $milestones ?: [],
+            'contributions' => $contributions ?: [],
+            'knowledge'     => $knowledge ?: [],
+            'dictionary'    => \app\work\logic\ProjectService::dictionary(),
+            'can_manage'    => $canManage ? true : false,
+            'can_accept'    => $service->canAccept($workId),
+        ]]);
+    }
+
+    /** 保存/更新实施档案（类型、等级、计划/实际时间、稳定期、验收结果） */
+    public function profileUpdate()
+    {
+        $param = $this->param;
+        $userInfo = $this->userInfo;
+        $workId = (int)($param['work_id'] ?? 0);
+        list($ok, $err) = $this->requireWorkManage($workId, $userInfo['id']);
+        if (!$ok) return resultArray(['error' => $err]);
+
+        $service = new \app\work\logic\ProjectService();
+        // 验收结果前置约束：未完成任何里程碑时禁止直接验收通过
+        $acceptResult = trim((string)($param['acceptance_result'] ?? ''));
+        if ($acceptResult !== '' && !$service->canAccept($workId)) {
+            return resultArray(['error' => '至少完成一条里程碑后才能登记验收结果']);
+        }
+        list($ok, $payload) = $service->saveProfile($workId, $param, $userInfo['id']);
+        if ($ok) {
+            Db::name('work')->where(['work_id' => $workId])->update(['update_time' => time()]);
+            return resultArray(['data' => $payload]);
+        }
+        return resultArray(['error' => $payload]);
+    }
+
+    /** 新增/更新里程碑（传 milestone_id 则更新） */
+    public function milestoneSave()
+    {
+        $param = $this->param;
+        $userInfo = $this->userInfo;
+        $workId = (int)($param['work_id'] ?? 0);
+        list($ok, $err) = $this->requireWorkManage($workId, $userInfo['id']);
+        if (!$ok) return resultArray(['error' => $err]);
+
+        $service = new \app\work\logic\ProjectService();
+        $verr = $service->validateMilestone($param);
+        if ($verr) return resultArray(['error' => $verr]);
+
+        $now = time();
+        $row = [
+            'work_id'        => $workId,
+            'milestone_type' => trim((string)$param['milestone_type']),
+            'name'           => trim((string)($param['name'] ?? '')),
+            'plan_time'      => \app\work\logic\ProjectService::parseTime($param['plan_time'] ?? ''),
+            'actual_time'    => \app\work\logic\ProjectService::parseTime($param['actual_time'] ?? ''),
+            'status'         => trim((string)($param['status'] ?? \app\work\logic\ProjectService::MS_STATUS_TODO)),
+            'sort'           => (int)($param['sort'] ?? 0),
+            'evidence_note'  => trim((string)($param['evidence_note'] ?? '')),
+            'update_time'    => $now,
+        ];
+        $milestoneId = (int)($param['milestone_id'] ?? 0);
+        if ($milestoneId > 0) {
+            $row['update_time'] = $now;
+            Db::name('work_milestone')->where(['milestone_id' => $milestoneId, 'work_id' => $workId])->update($row);
+            $id = $milestoneId;
+        } else {
+            $row['create_user_id'] = (int)$userInfo['id'];
+            $row['create_time'] = $now;
+            $id = Db::name('work_milestone')->insertGetId($row);
+            if (!$id) return resultArray(['error' => '里程碑创建失败']);
+        }
+        return resultArray(['data' => ['milestone_id' => $id]]);
+    }
+
+    /** 删除里程碑 */
+    public function milestoneDelete()
+    {
+        $param = $this->param;
+        $userInfo = $this->userInfo;
+        $workId = (int)($param['work_id'] ?? 0);
+        list($ok, $err) = $this->requireWorkManage($workId, $userInfo['id']);
+        if (!$ok) return resultArray(['error' => $err]);
+        $milestoneId = (int)($param['milestone_id'] ?? 0);
+        if ($milestoneId <= 0) return resultArray(['error' => '参数错误']);
+        Db::name('work_milestone')->where(['milestone_id' => $milestoneId, 'work_id' => $workId])->delete();
+        return resultArray(['data' => '删除成功']);
+    }
+
+    /** 新增/更新成员贡献 */
+    public function contributionSave()
+    {
+        $param = $this->param;
+        $userInfo = $this->userInfo;
+        $workId = (int)($param['work_id'] ?? 0);
+        list($ok, $err) = $this->requireWorkManage($workId, $userInfo['id']);
+        if (!$ok) return resultArray(['error' => $err]);
+        $userId = (int)($param['user_id'] ?? 0);
+        if ($userId <= 0) return resultArray(['error' => '请选择贡献人']);
+        $onSiteDays = (float)($param['on_site_days'] ?? 0);
+        if ($onSiteDays < 0) return resultArray(['error' => '现场人日不能为负']);
+
+        $now = time();
+        $row = [
+            'work_id'          => $workId,
+            'user_id'          => $userId,
+            'contribution_role'=> trim((string)($param['contribution_role'] ?? '')),
+            'on_site_days'     => $onSiteDays,
+            'start_time'       => \app\work\logic\ProjectService::parseTime($param['start_time'] ?? ''),
+            'end_time'         => \app\work\logic\ProjectService::parseTime($param['end_time'] ?? ''),
+            'evidence_note'    => trim((string)($param['evidence_note'] ?? '')),
+            'update_time'      => $now,
+        ];
+        $cid = (int)($param['contribution_id'] ?? 0);
+        if ($cid > 0) {
+            Db::name('work_member_contribution')->where(['contribution_id' => $cid, 'work_id' => $workId])->update($row);
+            $id = $cid;
+        } else {
+            $row['create_user_id'] = (int)$userInfo['id'];
+            $row['create_time'] = $now;
+            $id = Db::name('work_member_contribution')->insertGetId($row);
+            if (!$id) return resultArray(['error' => '贡献记录创建失败']);
+        }
+        return resultArray(['data' => ['contribution_id' => $id]]);
+    }
+
+    /** 删除成员贡献 */
+    public function contributionDelete()
+    {
+        $param = $this->param;
+        $userInfo = $this->userInfo;
+        $workId = (int)($param['work_id'] ?? 0);
+        list($ok, $err) = $this->requireWorkManage($workId, $userInfo['id']);
+        if (!$ok) return resultArray(['error' => $err]);
+        $cid = (int)($param['contribution_id'] ?? 0);
+        if ($cid <= 0) return resultArray(['error' => '参数错误']);
+        Db::name('work_member_contribution')->where(['contribution_id' => $cid, 'work_id' => $workId])->delete();
+        return resultArray(['data' => '删除成功']);
+    }
+
+    /** 新增/更新知识链接 */
+    public function knowledgeSave()
+    {
+        $param = $this->param;
+        $userInfo = $this->userInfo;
+        $workId = (int)($param['work_id'] ?? 0);
+        list($ok, $err) = $this->requireWorkManage($workId, $userInfo['id']);
+        if (!$ok) return resultArray(['error' => $err]);
+
+        $service = new \app\work\logic\ProjectService();
+        $verr = $service->validateKnowledge($param);
+        if ($verr) return resultArray(['error' => $verr]);
+
+        $now = time();
+        $row = [
+            'work_id'            => $workId,
+            'link_type'          => trim((string)$param['link_type']),
+            'title'              => trim((string)$param['title']),
+            'url'                => trim((string)($param['url'] ?? '')),
+            'owner_user_id'      => (int)($param['owner_user_id'] ?? 0),
+            'completeness_status'=> trim((string)($param['completeness_status'] ?? \app\work\logic\ProjectService::COMP_PARTIAL)),
+            'sort'               => (int)($param['sort'] ?? 0),
+            'update_time'        => $now,
+        ];
+        $lid = (int)($param['link_id'] ?? 0);
+        if ($lid > 0) {
+            Db::name('work_knowledge_link')->where(['link_id' => $lid, 'work_id' => $workId])->update($row);
+            $id = $lid;
+        } else {
+            $row['create_user_id'] = (int)$userInfo['id'];
+            $row['create_time'] = $now;
+            $id = Db::name('work_knowledge_link')->insertGetId($row);
+            if (!$id) return resultArray(['error' => '知识链接创建失败']);
+        }
+        return resultArray(['data' => ['link_id' => $id]]);
+    }
+
+    /** 删除知识链接 */
+    public function knowledgeDelete()
+    {
+        $param = $this->param;
+        $userInfo = $this->userInfo;
+        $workId = (int)($param['work_id'] ?? 0);
+        list($ok, $err) = $this->requireWorkManage($workId, $userInfo['id']);
+        if (!$ok) return resultArray(['error' => $err]);
+        $lid = (int)($param['link_id'] ?? 0);
+        if ($lid <= 0) return resultArray(['error' => '参数错误']);
+        Db::name('work_knowledge_link')->where(['link_id' => $lid, 'work_id' => $workId])->delete();
+        return resultArray(['data' => '删除成功']);
     }
 }
  

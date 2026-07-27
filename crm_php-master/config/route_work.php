@@ -51,6 +51,23 @@ return [
     //【项目】项目列表排序
     'work/work/updateWorkOrder' => ['work/work/updateWorkOrder', ['method' => 'POST']],
 
+    // ===== P1 项目实施扩展（20260726）=====
+    'work/work/implementationRead'  => ['work/work/implementationRead',  ['method' => 'POST']],
+    'work/work/profileUpdate'       => ['work/work/profileUpdate',       ['method' => 'POST']],
+    'work/work/milestoneSave'       => ['work/work/milestoneSave',       ['method' => 'POST']],
+    'work/work/milestoneDelete'     => ['work/work/milestoneDelete',     ['method' => 'POST']],
+    'work/work/contributionSave'    => ['work/work/contributionSave',    ['method' => 'POST']],
+    'work/work/contributionDelete'  => ['work/work/contributionDelete',  ['method' => 'POST']],
+    'work/work/knowledgeSave'       => ['work/work/knowledgeSave',       ['method' => 'POST']],
+    'work/work/knowledgeDelete'     => ['work/work/knowledgeDelete',     ['method' => 'POST']],
+
+    // ===== P4 外包项目（20260727）=====
+    'work/outsource/dictionary'    => ['work/outsource/dictionary',    ['method' => 'POST']],
+    'work/outsource/projectSave'   => ['work/outsource/projectSave',   ['method' => 'POST']],
+    'work/outsource/projectRead'   => ['work/outsource/projectRead',   ['method' => 'POST']],
+    'work/outsource/distributeSave'=> ['work/outsource/distributeSave',['method' => 'POST']],
+    'work/outsource/distributeRead'=> ['work/outsource/distributeRead',['method' => 'POST']],
+
 	//【我的任务】查看我的任务
 	'work/task/myTask'  => ['work/task/myTask', ['method' => 'POST']],
 	//【我的任务】拖拽改变分类
