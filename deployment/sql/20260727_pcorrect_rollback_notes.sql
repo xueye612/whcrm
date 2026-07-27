@@ -1,0 +1,6 @@
+-- pcorrect rollback notes (manual only, no auto-DROP)
+-- Stop code -> backup -> then manually:
+--   DROP TABLE IF EXISTS 5kcrm_payment_tracking;
+--   DROP TABLE IF EXISTS 5kcrm_stage_offset;
+--   DROP TABLE IF EXISTS 5kcrm_policy_approval;
+-- These tables contain only approval/offset/payment tracking records, not core business data.

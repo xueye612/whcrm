@@ -212,11 +212,31 @@ class Reward extends ApiCommon
         $type = trim((string)($param['approval_type'] ?? ''));
         $allowTypes = ['impl_level_4','outsource_level_4','dealer_followup','annual_bonus'];
         if (!in_array($type, $allowTypes, true)) return resultArray(['error' => '不支持的审批类型']);
+        $val = (float)($param['requested_value'] ?? 0);
+        $ref = (string)($param['source_ref'] ?? '');
+        if ($ref === '') return resultArray(['error' => '必须关联项目或结算对象']);
+
+        // 范围校验（制度硬约束）
+        $ranges = [
+            'impl_level_4' => [10, 12, '实施四级只允许10%-12%'],
+            'outsource_level_4' => [0, 30, '外包四级最高30%'],
+            'dealer_followup' => [0, 1, '经销商后续只允许0.5%/0.8%/1%'],
+            'annual_bonus' => [8, 12, '年度经营奖金池只允许8%-12%'],
+        ];
+        $r = $ranges[$type];
+        if ($val < $r[0] || $val > $r[1]) return resultArray(['error' => $r[2]]);
+        if ($type === 'dealer_followup' && !in_array($val, [0.5, 0.8, 1.0], true)) {
+            return resultArray(['error' => '经销商后续只允许0.5%/0.8%/1%']);
+        }
+
+        // 重复防护：同一对象同一类型不得存在已通过记录
+        $existApproved = Db::name('policy_approval')->where(['approval_type' => $type, 'source_ref' => $ref, 'result' => '已通过'])->find();
+        if ($existApproved) return resultArray(['error' => '该对象已有通过的同类型审批，不得重复']);
+
         $now = time();
         $id = Db::name('policy_approval')->insertGetId([
-            'approval_type' => $type, 'source_ref' => (string)($param['source_ref'] ?? ''),
-            'requested_value' => (float)($param['requested_value'] ?? 0),
-            'basis_note' => trim((string)($param['basis_note'] ?? '')),
+            'approval_type' => $type, 'source_ref' => $ref,
+            'requested_value' => $val, 'basis_note' => trim((string)($param['basis_note'] ?? '')),
             'applicant_user_id' => (int)$userInfo['id'], 'result' => '待审批',
             'create_time' => $now, 'update_time' => $now,
         ]);
@@ -252,29 +272,41 @@ class Reward extends ApiCommon
         return resultArray(['data' => ['approved' => $approved ? true : false, 'note' => $approved ? '审批已通过' : '未审批通过，不得据此计算']]);
     }
 
-    /** 3. 阶段奖励抵扣结算：最终应发=最终份额-已领取阶段奖励（最低0） */
+    /** 3. 阶段奖励抵扣结算：按 user_id + project_ref 查询，禁止跨项目抵扣 */
     public function stageOffsetCalc()
     {
         $param = $this->param; $userInfo = $this->userInfo;
         $userId = (int)($param['user_id'] ?? 0);
         $finalShare = (float)($param['final_share'] ?? 0);
-        $projectRef = (string)($param['project_ref'] ?? '');
+        $projectRef = trim((string)($param['project_ref'] ?? ''));
         $batchId = (int)($param['batch_id'] ?? 0);
-        if ($userId <= 0 || $finalShare < 0) return resultArray(['error' => '参数错误']);
-        // 查该用户在该项目已领取的预发阶段奖励（有效联系至明确项目类，非基础核实）
+        if ($userId <= 0 || $finalShare < 0 || $projectRef === '') return resultArray(['error' => 'user_id/project_ref/final_share 必填']);
+
+        // 重复防护：同一批次+人员+项目只能计算一次
+        $existOffset = Db::name('stage_offset')->where(['batch_id' => $batchId, 'user_id' => $userId, 'project_ref' => $projectRef])->find();
+        if ($existOffset) return resultArray(['error' => '该批次/人员/项目已计算抵扣，不得重复']);
+
+        // 仅查询该项目已实际领取或已结算的预发阶段奖励（按source_ref匹配项目）
         $stageTypes = ['经销商有效联系','经销商正式交流','经销商明确项目','医院有效联系','医院正式演示或拜访','医院明确项目','外包正式需求沟通','外包方案或报价'];
-        $offsetTotal = (float)Db::name('reward_candidate')
-            ->where('user_id', $userId)->whereIn('source_type', $stageTypes)
-            ->whereIn('status', ['已通过','已结算'])->sum('amount');
+        $candidates = Db::name('reward_candidate')
+            ->where('user_id', $userId)
+            ->whereIn('source_type', $stageTypes)
+            ->whereIn('status', ['已通过','已结算'])
+            ->where('source_ref', 'like', '%' . $projectRef . '%')
+            ->select();
+        $offsetTotal = 0.0;
+        $candIds = [];
+        foreach ($candidates as $c) { $offsetTotal += (float)$c['amount']; $candIds[] = $c['cand_id']; }
+        $offsetTotal = round($offsetTotal, 2);
         $netPayable = max(0, round($finalShare - $offsetTotal, 2));
         $now = time();
         $id = Db::name('stage_offset')->insertGetId([
             'batch_id' => $batchId, 'user_id' => $userId, 'project_ref' => $projectRef,
             'final_share' => $finalShare, 'offset_total' => $offsetTotal, 'net_payable' => $netPayable,
-            'detail_json' => json_encode(['final_share' => $finalShare, 'offset' => $offsetTotal, 'net' => $netPayable], JSON_UNESCAPED_UNICODE),
+            'detail_json' => json_encode(['candidate_ids' => $candIds, 'offset' => $offsetTotal, 'net' => $netPayable], JSON_UNESCAPED_UNICODE),
             'create_user_id' => (int)$userInfo['id'], 'create_time' => $now,
         ]);
-        return resultArray(['data' => ['offset_id' => $id, 'final_share' => $finalShare, 'offset_total' => $offsetTotal, 'net_payable' => $netPayable, 'note' => '最低为0，不得重复抵扣']]);
+        return resultArray(['data' => ['offset_id' => $id, 'final_share' => $finalShare, 'offset_total' => $offsetTotal, 'net_payable' => $netPayable, 'candidate_ids' => $candIds, 'note' => '仅抵扣本项目阶段奖励，最低0']]);
     }
 
     /** 4. 付款到账记录 */
