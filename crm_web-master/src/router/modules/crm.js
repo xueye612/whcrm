@@ -224,7 +224,7 @@ export default [
   // ===== P2 线索池 / P3 行业机会 / P5 奖励候选 / P6 季度绩效 =====
   {
     ...layout({ permissions: ['crm', 'leadpool', 'poolread'] }),
-    children: [{ path: 'leadpool', component: () => import('@/views/crm/leadpool'), meta: { title: '线索池', icon: 'record' } }]
+    children: [{ path: 'leadpool', component: () => import('@/views/crm/leadpool'), meta: { title: '原始数据池', icon: 'record' } }]
   },
   {
     ...layout({ permissions: ['crm', 'opportunity', 'opplist'] }),

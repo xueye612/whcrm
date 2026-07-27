@@ -534,6 +534,7 @@ return [
     'crm/leadpool/poolRead'    => ['crm/leadpool/poolRead',    ['method' => 'POST']],
     'crm/leadpool/dedupeQuery' => ['crm/leadpool/dedupeQuery', ['method' => 'POST']],
     'crm/leadpool/dedupeDecide'=> ['crm/leadpool/dedupeDecide',['method' => 'POST']],
+    'crm/leadpool/convertToLead'=> ['crm/leadpool/convertToLead',['method' => 'POST']],
     // ===== P3 经销商/医院/外包机会（20260727）=====
     'crm/opportunity/dictionary'  => ['crm/opportunity/dictionary',  ['method' => 'POST']],
     'crm/opportunity/oppSave'     => ['crm/opportunity/oppSave',     ['method' => 'POST']],

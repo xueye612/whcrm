@@ -16,7 +16,7 @@ class Leadpool extends ApiCommon
     {
         $action = [
             'permission' => [''],
-            'allow' => ['dictionary']
+            'allow' => ['dictionary', 'converttolead']
         ];
         Hook::listen('check_auth', $action);
         if (!in_array(strtolower(Request::instance()->action()), $action['permission'])) {
@@ -137,5 +137,44 @@ class Leadpool extends ApiCommon
             'create_time' => $now,
         ]);
         return resultArray(['data' => ['raw_id' => $rawId, 'status' => $newStatus]]);
+    }
+
+    /**
+     * 将已查重确认有效的原始线索幂等转入正式 crm_leads。
+     * 保存 raw_id/batch_id/source 关联；同一 raw_id 不得重复生成正式线索。
+     * 后续跟进只使用 crm_leads，不在 leadpool 重复建设。
+     */
+    public function convertToLead()
+    {
+        $param = $this->param; $userInfo = $this->userInfo;
+        $rawId = (int)($param['raw_id'] ?? 0);
+        if ($rawId <= 0) return resultArray(['error' => '参数错误']);
+        try {
+            $raw = Db::name('lead_raw')->where(['raw_id' => $rawId])->find();
+            if (!$raw) return resultArray(['error' => '原始线索不存在']);
+            if (!in_array($raw['status'], ['已查重', '已归并'])) return resultArray(['error' => '仅查重确认有效的原始线索可转入']);
+            if ((int)$raw['canonical_lead_id'] > 0) {
+                return resultArray(['data' => ['leads_id' => (int)$raw['canonical_lead_id'], 'note' => '该原始线索已转入正式线索，不重复生成']]);
+            }
+            $existLead = Db::name('crm_leads')->where('mobile', $raw['raw_mobile'])->where('mobile', '<>', '')->find();
+            $now = time();
+            if ($existLead) {
+                Db::name('lead_raw')->where(['raw_id' => $rawId])->update(['canonical_lead_id' => $existLead['leads_id'], 'status' => '已转客户', 'update_time' => $now]);
+                return resultArray(['data' => ['leads_id' => $existLead['leads_id'], 'mode' => 'linked', 'note' => '关联已有正式线索']]);
+            }
+            $leadsId = Db::name('crm_leads')->insertGetId([
+                'name' => $raw['raw_name'] ?: '未命名',
+                'mobile' => $raw['raw_mobile'],
+                'source' => $raw['source'] ?: '原始数据池',
+                'owner_user_id' => (int)$userInfo['id'],
+                'create_user_id' => (int)$userInfo['id'],
+                'create_time' => $now,
+                'update_time' => $now,
+            ]);
+            Db::name('lead_raw')->where(['raw_id' => $rawId])->update(['canonical_lead_id' => $leadsId, 'status' => '已转客户', 'update_time' => $now]);
+            return resultArray(['data' => ['leads_id' => $leadsId, 'mode' => 'created', 'raw_id' => $rawId]]);
+        } catch (\Throwable $e) {
+            return resultArray(['error' => 'convertToLead: ' . get_class($e) . ': ' . $e->getMessage()]);
+        }
     }
 }

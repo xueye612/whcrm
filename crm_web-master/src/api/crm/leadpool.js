@@ -19,3 +19,6 @@ export function leadpoolDedupeQueryAPI(data) {
 export function leadpoolDedupeDecideAPI(data) {
   return request({ url: 'crm/leadpool/dedupeDecide', method: 'post', data })
 }
+export function leadpoolConvertToLeadAPI(data) {
+  return request({ url: 'crm/leadpool/convertToLead', method: 'post', data })
+}
