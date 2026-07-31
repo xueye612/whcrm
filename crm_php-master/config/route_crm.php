@@ -178,6 +178,8 @@ return [
     'crm/business/product' => ['crm/business/product', ['method' => 'POST']],
     // 【商机】商机状态推进
     'crm/business/advance' => ['crm/business/advance', ['method' => 'POST']],
+    // 【商机】商机阶段回退（受控，仅管理员）
+    'crm/business/stageRollback' => ['crm/business/stageRollback', ['method' => 'POST']],
     // 【商机】删除
     'crm/business/delete' => ['crm/business/delete', ['method' => 'POST']],
     // 【商机】导出
@@ -190,6 +192,8 @@ return [
     'crm/business/count' => ['crm/business/count', ['method' => 'POST']],
     // 【商机】菜单数量
     'crm/business/setPrimary' => ['crm/business/setPrimary', ['method' => 'POST']],
+    // 【商机】经销商下拉（首次即加载前 20 名，支持名称搜索）
+    'crm/business/dealerOptions' => ['crm/business/dealerOptions', ['method' => 'POST']],
 
     // 【合同】列表
     'crm/contract/index' => ['crm/contract/index', ['method' => 'POST']],
@@ -527,25 +531,21 @@ return [
     'crm/setting/oaNumber' => ['crm/setting/oaNumber', ['method' => 'POST']],
     'crm/setting/dingtalkTaskNotifyRead' => ['crm/setting/dingtalkTaskNotifyRead', ['method' => 'POST']],
     'crm/setting/dingtalkTaskNotifySave' => ['crm/setting/dingtalkTaskNotifySave', ['method' => 'POST']],
-    // ===== P2 原始数据/有效线索（20260727）=====
-    'crm/leadpool/dictionary'  => ['crm/leadpool/dictionary',  ['method' => 'POST']],
-    'crm/leadpool/batchSave'   => ['crm/leadpool/batchSave',   ['method' => 'POST']],
-    'crm/leadpool/rawSave'     => ['crm/leadpool/rawSave',     ['method' => 'POST']],
-    'crm/leadpool/poolRead'    => ['crm/leadpool/poolRead',    ['method' => 'POST']],
-    'crm/leadpool/dedupeQuery' => ['crm/leadpool/dedupeQuery', ['method' => 'POST']],
-    'crm/leadpool/dedupeDecide'=> ['crm/leadpool/dedupeDecide',['method' => 'POST']],
-    'crm/leadpool/convertToLead'=> ['crm/leadpool/convertToLead',['method' => 'POST']],
-    // ===== P3 经销商/医院/外包机会（20260727）=====
-    'crm/opportunity/dictionary'  => ['crm/opportunity/dictionary',  ['method' => 'POST']],
-    'crm/opportunity/oppSave'     => ['crm/opportunity/oppSave',     ['method' => 'POST']],
-    'crm/opportunity/oppRead'     => ['crm/opportunity/oppRead',     ['method' => 'POST']],
-    'crm/opportunity/oppList'     => ['crm/opportunity/oppList',     ['method' => 'POST']],
-    'crm/opportunity/stageAdvance'=> ['crm/opportunity/stageAdvance',['method' => 'POST']],
-    'crm/opportunity/hospitalPoolSet'=> ['crm/opportunity/hospitalPoolSet',['method' => 'POST']],
     // ===== P5 奖励候选与商务费用（20260727）=====
     'crm/reward/dictionary'   => ['crm/reward/dictionary',  ['method' => 'POST']],
     'crm/reward/candidateSave'=> ['crm/reward/candidateSave',['method' => 'POST']],
     'crm/reward/candidateList'=> ['crm/reward/candidateList',['method' => 'POST']],
+    'crm/reward/candidateRead' => ['crm/reward/candidateRead', ['method' => 'POST']],
+    'crm/reward/candidateUpdate' => ['crm/reward/candidateUpdate', ['method' => 'POST']],
+    'crm/reward/candidateAuditList' => ['crm/reward/candidateAuditList', ['method' => 'POST']],
+    'crm/reward/ruleList'     => ['crm/reward/ruleList', ['method' => 'POST']],
+    'crm/reward/ruleSave'     => ['crm/reward/ruleSave', ['method' => 'POST']],
+    'crm/reward/ruleToggle'   => ['crm/reward/ruleToggle', ['method' => 'POST']],
+    'crm/reward/ruleDelete'   => ['crm/reward/ruleDelete', ['method' => 'POST']],
+    'crm/reward/businessTypeStageList' => ['crm/reward/businessTypeStageList', ['method' => 'POST']],
+    'crm/reward/manualRuleList' => ['crm/reward/manualRuleList', ['method' => 'POST']],
+    'crm/reward/manualRuleSave' => ['crm/reward/manualRuleSave', ['method' => 'POST']],
+    'crm/reward/manualRuleDelete' => ['crm/reward/manualRuleDelete', ['method' => 'POST']],
     'crm/reward/review'       => ['crm/reward/review',      ['method' => 'POST']],
     'crm/reward/batchCreate'  => ['crm/reward/batchCreate', ['method' => 'POST']],
     'crm/reward/batchSettle'  => ['crm/reward/batchSettle', ['method' => 'POST']],
@@ -562,11 +562,24 @@ return [
     // ===== P6 季度绩效（20260727）=====
     'crm/performance/dictionary'  => ['crm/performance/dictionary', ['method' => 'POST']],
     'crm/performance/summarySave' => ['crm/performance/summarySave',['method' => 'POST']],
+    'crm/performance/generateQuarterly' => ['crm/performance/generateQuarterly',['method' => 'POST']],
+    'crm/performance/summaryDelete' => ['crm/performance/summaryDelete',['method' => 'POST']],
     'crm/performance/summaryRead' => ['crm/performance/summaryRead',['method' => 'POST']],
     'crm/performance/summaryList' => ['crm/performance/summaryList',['method' => 'POST']],
     'crm/performance/rate'        => ['crm/performance/rate',      ['method' => 'POST']],
     'crm/performance/caseSave'    => ['crm/performance/caseSave',  ['method' => 'POST']],
     'crm/performance/caseList'    => ['crm/performance/caseList',  ['method' => 'POST']],
+    'crm/performance/autoAggregate' => ['crm/performance/autoAggregate', ['method' => 'POST']],
+    'crm/performance/addFact' => ['crm/performance/addFact', ['method' => 'POST']],
+     'crm/performance/factList'          => ['crm/performance/factList',          ['method' => 'POST']],
+     'crm/performance/factDetail'        => ['crm/performance/factDetail',        ['method' => 'POST']],
+    'crm/performance/factReview' => ['crm/performance/factReview', ['method' => 'POST']],
+    'crm/performance/summaryReturn' => ['crm/performance/summaryReturn', ['method' => 'POST']],
+    'crm/performance/summaryRecommit' => ['crm/performance/summaryRecommit', ['method' => 'POST']],
+    'crm/performance/caseReview' => ['crm/performance/caseReview', ['method' => 'POST']],
+    'crm/performance/ledgerQualitySave' => ['crm/performance/ledgerQualitySave', ['method' => 'POST']],
+    'crm/performance/ledgerQualityReview' => ['crm/performance/ledgerQualityReview', ['method' => 'POST']],
+    'crm/performance/ledgerQualityList' => ['crm/performance/ledgerQualityList', ['method' => 'POST']],
     // MISS璺敱
     '__miss__' => 'admin/base/miss',
 ];

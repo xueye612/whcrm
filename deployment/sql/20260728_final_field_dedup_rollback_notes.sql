@@ -1,0 +1,24 @@
+-- ============================================================
+-- 第四段 rollback_notes
+-- ============================================================
+-- 回滚路径：
+-- 1) 还原 admin_field 行（从外部备份恢复整表）：
+--    mysql -u root -p crm < D:\Users\SN\.codex\backups\whcrm\final_close_<timestamp>\admin_field.full.sql
+--    或从备份中提取 INSERT 行重新插入：
+--    INSERT INTO 5kcrm_admin_field (field_id, types, field, name, ...) VALUES (952, ...);
+--    INSERT INTO 5kcrm_admin_field (field_id, types, field, name, ...) VALUES (962, ...);
+--    完整列定义请以 admin_field.full.sql 备份为准。
+--
+-- 2) 还原 crm_business_data 残留：forward 删除的两 field 在 precheck 已确认无数据，无须恢复。
+--
+-- 3) dealer_customer_id 物理列未被删除，无须恢复列。
+--
+-- 4) 影响：
+--    - 商机字段配置缓存（BI_queryCache_StatusList_Data 与字段配置缓存）需要清除：
+--      后端 Business::statusList 已使用 cache()，调用一次 /crm/business/statusList 即自动重建。
+--      字段配置缓存键见 admin/model/Field.php 内部实现。
+--    - 清除策略：仅清相关键，不清空 Redis；通过 Cache::clear('field_business') 或等价 API。
+--    - 前端 Create.vue 已对 crm_rianjp / dealer_customer_id 两个旧 field 做兼容隐藏，
+--      即使旧缓存短时间再次显示，UI 也会忽略，不会出现两个"所属经销商"。
+-- ============================================================
+SELECT 'rollback_notes_final_field_dedup' AS note;

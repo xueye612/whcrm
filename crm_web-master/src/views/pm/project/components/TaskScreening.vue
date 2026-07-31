@@ -33,7 +33,7 @@
             <xr-avatar
               v-if="val.type == 'user'"
               :name="val.realname"
-              :size="24"
+              :size="26"
               :src="val.img"
               class="user-img" />
             <span
@@ -325,7 +325,7 @@ export default {
     .el-input {
       padding: 10px 15px;
     }
-    font-size: 13px;
+    font-size: 14px;
     height: calc(100% - 60px);
     overflow-y: auto;
     .menu-list {
@@ -391,7 +391,7 @@ export default {
 
         .wk {
           color: white;
-          font-size: 12px;
+          font-size: 14px;
         }
       }
 
@@ -401,7 +401,7 @@ export default {
       }
 
       .item-list-label.is-tag {
-        font-size: 12px;
+        font-size: 14px;
         font-weight: 600;
       }
 

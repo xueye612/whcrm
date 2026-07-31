@@ -1,0 +1,26 @@
+-- ============================================================
+-- 第七段 rollback_notes
+-- ============================================================
+-- 回滚路径：
+-- 1) 状态默认值回滚（仅恢复默认值，不回滚历史数据）：
+--    ALTER TABLE 5kcrm_performance MODIFY COLUMN status VARCHAR(20) NOT NULL DEFAULT '待确认';
+--    ALTER TABLE 5kcrm_performance_fact MODIFY COLUMN status VARCHAR(20) NOT NULL DEFAULT 'pending_review';
+--    ALTER TABLE 5kcrm_performance_fact MODIFY COLUMN direction VARCHAR(10) NOT NULL DEFAULT 'positive';
+--    （或从外部备份恢复整表）
+--
+-- 2) 历史数据已中文化部分不可逆（如 pending_review → 待审核）；
+--    如需精确恢复，从外部备份恢复整表：
+--    mysql -u root -p crm < D:\Users\SN\.codex\backups\whcrm\final_close_<timestamp>\performance.full.sql
+--    mysql -u root -p crm < D:\Users\SN\.codex\backups\whcrm\final_close_<timestamp>\performance_fact.full.sql
+--
+-- 3) 子权限规则删除（如需精确回滚）：
+--    DELETE FROM 5kcrm_admin_rule WHERE name LIKE 'perf_%' AND pid=442;
+--    注意：删除后超管组 rules 字段仍可能引用这些 ID，需同步清理
+--    （通常可忽略，超管组未引用的 rule_id 不影响其他权限）
+--
+-- 4) 影响：
+--    - performance_fact 中已有事实会进入"待审核"中文状态
+--    - autoAggregate 已生成的事实 source_id 唯一，重复执行幂等
+--    - RBAC 子权限缺失时，普通员工只能查看本人绩效（兜底）
+-- ============================================================
+SELECT 'rollback_notes_final_perf_rbac' AS note;

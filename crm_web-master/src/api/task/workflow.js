@@ -22,17 +22,22 @@ export function workflowReadAPI(data) {
   })
 }
 
-// 评估：待评估 → 待处理
+// 评估：待评估 -> 待处理
 export function evaluateTaskAPI(data) {
   return request({ url: 'work/task/evaluate', method: 'post', data })
 }
 
-// 开始处理：待处理 → 处理中（需初始 W/R/K）
+// 跳过评估：待评估 -> 待处理（无需评估）
+export function skipEvaluateAPI(data) {
+  return request({ url: 'work/task/skipEvaluate', method: 'post', data })
+}
+
+// 开始处理：待处理 -> 处理中
 export function startProcessTaskAPI(data) {
   return request({ url: 'work/task/startProcess', method: 'post', data })
 }
 
-// 提交内部验收：处理中 → 待内部验收
+// 提交内部验收：处理中 -> 待内部验收
 export function submitAcceptanceAPI(data) {
   return request({ url: 'work/task/submitAcceptance', method: 'post', data })
 }
@@ -52,17 +57,17 @@ export function applyReleaseAPI(data) {
   return request({ url: 'work/task/applyRelease', method: 'post', data })
 }
 
-// 确认发布：待发布 → 待客户验证
+// 确认发布：待发布 -> 待客户验证
 export function confirmReleaseAPI(data) {
   return request({ url: 'work/task/confirmRelease', method: 'post', data })
 }
 
-// 客户确认 → 已完成
+// 客户确认 -> 已完成
 export function customerConfirmAPI(data) {
   return request({ url: 'work/task/customerConfirm', method: 'post', data })
 }
 
-// 客户退回 → 处理中
+// 客户退回 -> 处理中
 export function customerReturnAPI(data) {
   return request({ url: 'work/task/customerReturn', method: 'post', data })
 }
@@ -82,6 +87,11 @@ export function setReleaseExemptionAPI(data) {
   return request({ url: 'work/task/setReleaseExemption', method: 'post', data })
 }
 
+// 设置/删除任务开始时间（与工作流状态双向关联）
+export function setStartTimeAPI(data) {
+  return request({ url: 'work/task/setStartTime', method: 'post', data })
+}
+
 // 更新 W/R/K
 export function updateWrkAPI(data) {
   return request({ url: 'work/task/updateWrk', method: 'post', data })
@@ -92,12 +102,12 @@ export function initiateTestAPI(data) {
   return request({ url: 'work/task/initiateTest', method: 'post', data })
 }
 
-// 测试人员提交结果
+// 测试人员提交反馈
 export function submitTestAPI(data) {
   return request({ url: 'work/task/submitTest', method: 'post', data })
 }
 
-// 研发负责人评定
+// 研发负责人评定（旧流程兼容，新流程不再调用）
 export function reviewTestAPI(data) {
   return request({ url: 'work/task/reviewTest', method: 'post', data })
 }
@@ -105,4 +115,19 @@ export function reviewTestAPI(data) {
 // 测试任务列表
 export function testListAPI(data) {
   return request({ url: 'work/task/testList', method: 'post', data })
+}
+
+// 测试任务详情
+export function testDetailAPI(data) {
+  return request({ url: 'work/task/testDetail', method: 'post', data })
+}
+
+// 测试任务历史记录
+export function testHistoryAPI(data) {
+  return request({ url: 'work/task/testHistory', method: 'post', data })
+}
+
+// 删除（软删除）测试任务
+export function deleteTestAPI(data) {
+  return request({ url: 'work/task/deleteTest', method: 'post', data })
 }

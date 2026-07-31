@@ -15,7 +15,6 @@
       <span class="mobile-ledger-hint__sep">|</span>
       <router-link to="/m/ledger/quick">快捷录入</router-link>
     </el-alert>
-    <ledger-status-dashboard :stats="stats" @filter="quickFilter" />
     <div v-show="canRead" class="filter-bar">
       <el-form :inline="true" :model="filters" class="filter-form">
         <el-form-item label="客户">
@@ -109,8 +108,15 @@
       <div class="filter-actions">
         <el-button v-if="canRead" :loading="exportLoading" @click="handleExport">导出Excel</el-button>
         <el-button v-if="canSave" type="primary" @click="openCreate">新建台账</el-button>
+        <el-button v-if="canUpdate" :loading="qualityLoading" @click="showQualityCheck">数据质量检查</el-button>
       </div>
     </div>
+
+    <ledger-statistics-panel
+      ref="ledgerStats"
+      :start-date="statsStartDate"
+      :end-date="statsEndDate"
+      @filter="quickFilter" />
 
     <el-table
       v-loading="loading"
@@ -163,10 +169,12 @@
           {{ formatListTime(scope.row.status === '已完成' ? scope.row.finish_time : '') }}
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="136" fixed="right">
+      <el-table-column label="操作" width="200" fixed="right">
         <template slot-scope="scope">
           <el-button type="text" @click="openDetail(scope.row)">详情</el-button>
           <el-button v-if="canUpdate" type="text" @click="openEdit(scope.row)">编辑</el-button>
+          <el-button v-if="canUpdate && !scope.row.task_id" type="text" @click="openConvertTask(scope.row)">转任务</el-button>
+          <el-button v-if="scope.row.task_id" type="text" @click="openTaskLink(scope.row)">查看任务</el-button>
           <el-button v-if="canDelete" type="text" @click="handleDelete(scope.row)">删除</el-button>
         </template>
       </el-table-column>
@@ -530,6 +538,47 @@
         <el-button @click="detailVisible=false">关闭</el-button>
       </div>
     </el-dialog>
+    <el-dialog :visible.sync="convertDialog" title="转为任务" width="520px" append-to-body>
+      <el-alert :closable="false" type="info" show-icon class="convert-alert" title="转换后将在所选项目中创建任务，并与当前台账建立关联。" />
+      <el-form label-width="100px" size="small">
+        <el-form-item label="项目">
+          <el-select v-model="convertForm.work_id" filterable placeholder="搜索项目名称" style="width:100%" @change="onProjectChange">
+            <el-option v-for="w in workOptions" :key="w.work_id" :label="w.name" :value="w.work_id"/>
+          </el-select>
+        </el-form-item>
+        <el-form-item label="任务分类">
+          <el-select v-model="convertForm.class_id" placeholder="选择分类" style="width:100%">
+            <el-option v-for="c in classOptions" :key="c.class_id" :label="c.name" :value="c.class_id"/>
+          </el-select>
+        </el-form-item>
+        <el-form-item label="负责人">
+          <el-select v-model="convertForm.main_user_id" filterable placeholder="选择负责人" style="width:100%">
+            <el-option v-for="u in memberOptions" :key="u.id" :label="u.realname" :value="u.id"/>
+          </el-select>
+        </el-form-item>
+        <el-form-item label="截止时间"><el-date-picker v-model="convertForm.stop_time" type="date" value-format="yyyy-MM-dd" style="width:100%"/></el-form-item>
+        <el-form-item label="转换原因"><el-input v-model="convertForm.reason" :rows="2" type="textarea"/></el-form-item>
+      </el-form>
+      <span slot="footer"><el-button @click="convertDialog=false">取消</el-button><el-button :loading="convertLoading" type="primary" @click="submitConvertTask">确认转换</el-button></span>
+    </el-dialog>
+
+    <el-dialog :visible.sync="qualityDialog" title="数据质量检查" width="860px" append-to-body>
+      <div v-if="!qualityData.length" style="text-align:center;padding:30px;color:#909399">未发现数据质量问题</div>
+      <el-table v-else :data="qualityData" size="small" border>
+        <el-table-column label="类型" prop="type" width="130"/>
+        <el-table-column label="台账ID" prop="ledger_id" width="80">
+          <template slot-scope="scope">{{ scope.row.ledger_id || '-' }}</template>
+        </el-table-column>
+        <el-table-column label="台账标题" prop="title" width="160" show-overflow-tooltip/>
+        <el-table-column label="问题说明" prop="detail" min-width="200" show-overflow-tooltip/>
+        <el-table-column label="处理建议" prop="suggestion" width="160" show-overflow-tooltip/>
+        <el-table-column label="操作" width="80">
+          <template slot-scope="scope">
+            <el-button v-if="scope.row.ledger_id" type="text" @click="openQualityLedger(scope.row)">查看台账</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+    </el-dialog>
   </div>
 </template>
 
@@ -548,22 +597,24 @@ import { ledgerCategoryListAPI } from '@/api/admin/other'
 import { crmCustomerIndexAPI, crmCustomerQueryContactsAPI } from '@/api/crm/customer'
 import { crmContractIndexAPI, crmContractReadAPI } from '@/api/crm/contract'
 import { XhUserCell } from '@/components/CreateCom'
-import LedgerStatusDashboard from './components/LedgerStatusDashboard'
+import LedgerStatisticsPanel from './statistics'
 import LedgerRecordTimeline from './components/LedgerRecordTimeline'
 import ledgerMixin from '@/mixins/ledgerMixin'
 import { isMobileClient } from '@/utils/mobileClient'
 import { workIndexWorkListAPI } from '@/api/pm/task'
 import { workWorkStatisticAPI } from '@/api/pm/statistics'
 import { downloadExcelWithResData } from '@/utils'
-import { DEFAULT_LEDGER_CATEGORY } from '@/utils/ledgerFormat'
+import { DEFAULT_LEDGER_CATEGORY, LEDGER_STATUS_OPTIONS } from '@/utils/ledgerFormat'
 import { isCompletedLedgerStatus, isClosedLedgerStatus, normalizeCompletionFields } from '@/utils/ledgerCompletion'
 import { copyLedgerShareLink } from '@/utils/ledgerLink'
+import { ledgerConvertToTaskAPI, ledgerQualityCheckAPI } from '@/api/ledger_extensions'
+import { workWorkOwnerListAPI } from '@/api/pm/project'
 
 export default {
   name: 'CustomerLedger',
   components: {
     XhUserCell,
-    LedgerStatusDashboard,
+    LedgerStatisticsPanel,
     LedgerRecordTimeline,
     Tinymce: () => import('@/components/Tinymce')
   },
@@ -571,13 +622,14 @@ export default {
   data() {
     return {
       showMobileHint: false,
-      stats: {
-        total: 0,
-        pending: 0,
-        processing: 0,
-        releasePending: 0,
-        completed: 0
-      },
+      convertDialog: false,
+      convertLoading: false,
+      convertRow: null,
+      convertForm: { work_id: '', class_id: '', main_user_id: '', stop_time: '', reason: '' },
+      memberOptions: [],
+      qualityDialog: false,
+      qualityLoading: false,
+      qualityData: [],
       loading: false,
       list: [],
       page: 1,
@@ -594,7 +646,7 @@ export default {
         keyword: ''
       },
       filterHandlerUser: [],
-      statusOptions: ['待处理', '处理中', '待验证', '待发布', '已完成', '已关闭'],
+      statusOptions: [...LEDGER_STATUS_OPTIONS],
       categoryOptions: ['使用指导', '操作错误', '功能完善', '系统BUG', '新增需求', '三方问题', '其他问题'],
       channelOptions: ['微信', '电话', '现场', '转述', '其他'],
       workOptions: [],
@@ -649,6 +701,12 @@ export default {
     }
   },
   computed: {
+    statsStartDate() {
+      return (this.filters.feedback_date && this.filters.feedback_date[0]) || ''
+    },
+    statsEndDate() {
+      return (this.filters.feedback_date && this.filters.feedback_date[1]) || ''
+    },
     ledgerAuth() {
       const allAuth = this.$store.getters.allAuth || {}
       return (allAuth.ledger && allAuth.ledger.ledger) || {}
@@ -758,7 +816,6 @@ export default {
     if (this.canRead && !hasRouteFilter) this.getList()
     this.fetchCategoryOptions()
     this.fetchWorkOptions()
-    this.fetchLedgerStats()
     this.updateMobileLedgerHint()
     if (typeof window !== 'undefined') {
       window.addEventListener('resize', this.updateMobileLedgerHint)
@@ -770,8 +827,83 @@ export default {
     }
   },
   methods: {
+    openConvertTask(row) {
+      this.convertRow = row
+      this.convertForm = { work_id: '', class_id: '', main_user_id: '', stop_time: '', reason: '' }
+      this.classOptions = []
+      this.memberOptions = []
+      if (!this.workOptions.length) this.fetchWorkOptions()
+      this.convertDialog = true
+    },
+    openTaskLink(row) {
+      if (!row || !row.task_id) return
+      const route = this.$router.resolve({ path: '/project/workbench', query: { task_id: String(row.task_id) }})
+      window.open(route.href, '_blank')
+    },
+    async onProjectChange(workId) {
+      this.convertForm.class_id = ''
+      this.convertForm.main_user_id = ''
+      this.fetchClassOptions(workId)
+      if (!workId) {
+        this.memberOptions = []
+        return
+      }
+      try {
+        const res = await workWorkOwnerListAPI({ work_id: workId })
+        this.memberOptions = res.data || []
+      } catch (e) {
+        this.memberOptions = []
+      }
+    },
+    submitConvertTask() {
+      if (!this.convertForm.work_id || !this.convertForm.class_id || !this.convertForm.main_user_id || !this.convertForm.stop_time || !this.convertForm.reason) {
+        this.$message.warning('请填写完整信息')
+        return
+      }
+      this.convertLoading = true
+      ledgerConvertToTaskAPI({
+        ledger_id: this.convertRow.ledger_id,
+        work_id: Number(this.convertForm.work_id),
+        class_id: Number(this.convertForm.class_id),
+        main_user_id: Number(this.convertForm.main_user_id),
+        stop_time: this.convertForm.stop_time,
+        reason: this.convertForm.reason
+      }).then(res => {
+        const taskId = res.data && res.data.task_id
+        const note = res.data && res.data.note
+        this.convertDialog = false
+        this.convertForm = { work_id: '', class_id: '', main_user_id: '', stop_time: '', reason: '' }
+        this.getList()
+        if (taskId) {
+          this.$confirm('任务已创建：#' + taskId + (note ? '（' + note + '）' : '') + '\n\n任务已创建，请根据任务情况选择是否需要评估。\n\n是否立即前往任务详情？', '转换成功', {
+            confirmButtonText: '前往任务详情',
+            cancelButtonText: '稍后',
+            type: 'success'
+          }).then(() => {
+            const route = this.$router.resolve({ path: '/project/workbench', query: { task_id: String(taskId) }})
+            window.open(route.href, '_blank')
+          }).catch(() => {})
+        }
+      }).catch(() => {
+        this.$message.error('转换失败，请重试')
+      }).finally(() => { this.convertLoading = false })
+    },
+    showQualityCheck() {
+      this.qualityLoading = true
+      ledgerQualityCheckAPI({}).then(res => {
+        this.qualityData = (res.data && res.data.issues) || []
+        this.qualityDialog = true
+      }).catch(() => {
+        this.$message.error('数据质量检查请求失败')
+      }).finally(() => { this.qualityLoading = false })
+    },
+    openQualityLedger(row) {
+      if (!row || !row.ledger_id) return
+      this.qualityDialog = false
+      this.openDetailById(row.ledger_id)
+    },
     fetchStats() {
-      return this.fetchLedgerStats()
+      if (this.$refs.ledgerStats) this.$refs.ledgerStats.refresh()
     },
     quickFilter(status) {
       this.filters.status = status
@@ -880,8 +1012,8 @@ export default {
     },
     openTaskDetail() {
       if (!this.detail || !this.detail.task_id) return
-      const url = `/#/project/workbench?task_id=${this.detail.task_id}`
-      window.open(url, '_blank')
+      const route = this.$router.resolve({ path: '/project/workbench', query: { task_id: String(this.detail.task_id) }})
+      window.open(route.href, '_blank')
     },
     copyCurrentLedgerLink() {
       if (!this.detail || !this.detail.ledger_id) return
@@ -1052,7 +1184,6 @@ export default {
       const map = {
         '待处理': 'info',
         '处理中': 'warning',
-        '待验证': 'warning',
         '待发布': '',
         '已完成': 'success',
         '已关闭': 'danger'

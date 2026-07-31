@@ -4,9 +4,9 @@
       <button
         v-for="item in statusFilters"
         :key="item.value"
+        :class="{ 'is-active': filters.status === item.value }"
         type="button"
         class="status-chip"
-        :class="{ 'is-active': filters.status === item.value }"
         @click="setStatus(item.value)">
         {{ item.label }}
       </button>
@@ -31,8 +31,8 @@
         <div class="ledger-card__title">{{ item.title || '未命名' }}</div>
         <span
           v-if="item.status"
-          class="ledger-card__status"
-          :class="[statusTagClass(item.status), statusBadgeClass(item.status)]">
+          :class="[statusTagClass(item.status), statusBadgeClass(item.status)]"
+          class="ledger-card__status">
           {{ item.status }}
         </span>
       </div>

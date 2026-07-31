@@ -1,0 +1,17 @@
+-- ============================================================
+-- 第三段 rollback_notes（原地 UPDATE 可逆）
+-- ============================================================
+-- 恢复路径：
+-- 1) 从外部备份还原表数据：
+--    D:\Users\SN\.codex\backups\whcrm\final_close_<timestamp>\crm_business_status.full.sql
+--    mysql -u root -p crm < crm_business_status.full.sql
+-- 2) 如仅需要回退单条：
+--    UPDATE 5kcrm_crm_business_status SET name='base_verify' WHERE status_id=10;
+--    ... 等
+-- 3) 校验：
+--    SELECT status_id, type_id, name FROM 5kcrm_crm_business_status ORDER BY type_id, status_id;
+--    应与 precheck snapshot 一致。
+-- 4) 影响：
+--    status_id 未变，不影响任何商机引用；仅名称回退。
+-- ============================================================
+SELECT 'rollback_notes_final_biz_status' AS note;

@@ -93,10 +93,7 @@
 
 <script>
 import {
-  financeTypeListAPI,
-  financeTypeAddAPI,
-  financeTypeUpdateAPI,
-  financeTypeDeleteAPI
+  financeTypeListAPI
 } from '@/api/admin/other'
 import {
   financeTypeSave,

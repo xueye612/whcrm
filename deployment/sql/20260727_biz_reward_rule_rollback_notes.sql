@@ -1,0 +1,4 @@
+-- biz_reward_rule rollback (manual only, ASCII)
+-- Stop code -> backup -> then manually:
+--   DROP TABLE IF EXISTS 5kcrm_business_stage_reward_rule;
+-- Do NOT delete: 5kcrm_reward_candidate rows, 5kcrm_crm_business rows.

@@ -1,0 +1,15 @@
+-- =====================================================================
+-- 20260729_reward_update_user_rollback_notes.sql
+-- 回滚说明：update_user_id 列添加后的回滚步骤（手动执行）
+-- =====================================================================
+-- 回滚步骤（仅在确认不需要时执行）：
+-- 1. 该列为新增列，默认值 0，不影响已有数据。
+-- 2. 如需回滚，执行以下 SQL（会删除列和索引）：
+--
+--    ALTER TABLE `5kcrm_reward_candidate` DROP INDEX `idx_update_user_id`;
+--    ALTER TABLE `5kcrm_reward_candidate` DROP COLUMN `update_user_id`;
+--
+-- 注意：回滚后 candidateList 接口仍能正常运行（代码已兼容列不存在的情况），
+--       但 update_user_name 字段将返回空字符串。
+-- =====================================================================
+SELECT 'rollback notes for reward_update_user' AS result;

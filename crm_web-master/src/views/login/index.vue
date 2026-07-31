@@ -1,7 +1,7 @@
 <template>
   <div
-    class="login-wrapper"
-    :class="{ 'login-wrapper--mobile': isMobileClient }">
+    :class="{ 'login-wrapper--mobile': isMobileClient }"
+    class="login-wrapper">
     <div class="top-nav">
       <img
         src="~@/assets/logo_white.png"

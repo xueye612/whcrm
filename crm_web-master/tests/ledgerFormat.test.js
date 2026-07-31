@@ -18,6 +18,10 @@ function loadModule(filePath) {
 
 const format = loadModule(path.resolve(__dirname, '../src/utils/ledgerFormat.js'))
 
+assert.deepStrictEqual(
+  Array.from(format.LEDGER_STATUS_OPTIONS),
+  ['待处理', '处理中', '待发布', '已完成', '已关闭']
+)
 assert.strictEqual(format.statusTagType('待处理'), 'info')
 assert.strictEqual(format.statusTagType('处理中'), 'warning')
 assert.strictEqual(format.statusTagType('已完成'), 'success')

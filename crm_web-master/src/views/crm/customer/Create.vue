@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <xr-create
     :loading="loading"
     :title="title"

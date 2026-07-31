@@ -1,0 +1,25 @@
+-- =====================================================================
+-- 20260729_reward_candidate_ext_rollback_notes.sql
+-- 回滚说明：如何撤销本迁移
+-- =====================================================================
+-- 
+-- 回滚步骤（按逆序执行）：
+-- 
+-- 1. 删除 customer_ledger 统计索引：
+--    ALTER TABLE `5kcrm_customer_ledger` DROP INDEX `idx_handler_ledger`;
+--    ALTER TABLE `5kcrm_customer_ledger` DROP INDEX `idx_customer_id_ledger`;
+--    ALTER TABLE `5kcrm_customer_ledger` DROP INDEX `idx_status_register`;
+-- 
+-- 2. 删除 reward_candidate source_ref 索引：
+--    ALTER TABLE `5kcrm_reward_candidate` DROP INDEX `idx_source_ref`;
+-- 
+-- 3. 删除 reward_candidate 新增列：
+--    ALTER TABLE `5kcrm_reward_candidate` DROP COLUMN `rule_id`;
+--    ALTER TABLE `5kcrm_reward_candidate` DROP COLUMN `stage_name`;
+-- 
+-- 注意：
+-- - 回滚前请确认没有依赖这些列的代码在运行
+-- - 回滚不会删除已有数据，仅移除结构
+-- - 如 reward_candidate 表中有使用 stage_name/rule_id 的记录，回滚后这些字段数据将丢失
+-- =====================================================================
+SELECT 'rollback notes for 20260729_reward_candidate_ext' AS info;

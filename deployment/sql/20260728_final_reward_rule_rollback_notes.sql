@@ -1,0 +1,18 @@
+-- ============================================================
+-- 第六段 rollback_notes
+-- ============================================================
+-- 回滚路径：
+-- 1) 清空规则表（无业务数据引用，仅删除规则配置）：
+--    TRUNCATE TABLE 5kcrm_business_stage_reward_rule;
+--    或 DELETE FROM 5kcrm_business_stage_reward_rule;
+-- 2) 影响范围：
+--    - 商机 advance 接口在缺少规则时只推进状态，不生成奖励候选
+--    - 已生成的 reward_candidate 不会被本回滚自动清理
+--      （如需清理可按 source_type='business_stage' 删除：DELETE FROM 5kcrm_reward_candidate WHERE source_type='business_stage';）
+-- 3) 还原路径（如需精确恢复）：
+--    从外部备份恢复整表：
+--    mysql -u root -p crm < D:\Users\SN\.codex\backups\whcrm\final_close_<timestamp>\business_stage_reward_rule.full.sql
+-- 4) 幂等说明：
+--    forward 使用 ON DUPLICATE KEY UPDATE，可重复执行不重复写入
+-- ============================================================
+SELECT 'rollback_notes_final_reward_rule' AS note;

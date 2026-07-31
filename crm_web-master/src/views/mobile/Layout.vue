@@ -1,10 +1,10 @@
 <template>
   <div
-    class="mobile-layout"
     :class="{
       'mobile-layout--form': isQuickPage,
       'mobile-layout--with-tabbar': showTabbar
-    }">
+    }"
+    class="mobile-layout">
     <div class="mobile-layout__inner">
       <header class="mobile-layout__header">
         <button
@@ -35,15 +35,6 @@ import { bindMobileViewport } from '@/utils/mobileViewport'
 
 export default {
   name: 'MobileLayout',
-  mounted() {
-    this.unbindViewport = bindMobileViewport(this.$el)
-  },
-  beforeDestroy() {
-    if (this.unbindViewport) {
-      this.unbindViewport()
-      this.unbindViewport = null
-    }
-  },
   computed: {
     pageTitle() {
       return (this.$route.meta && this.$route.meta.title) || '移动台账'
@@ -59,6 +50,15 @@ export default {
     },
     showTabbar() {
       return !this.isQuickPage
+    }
+  },
+  mounted() {
+    this.unbindViewport = bindMobileViewport(this.$el)
+  },
+  beforeDestroy() {
+    if (this.unbindViewport) {
+      this.unbindViewport()
+      this.unbindViewport = null
     }
   },
   methods: {

@@ -28,6 +28,29 @@
           @handle="detailHeadHandle"
           @close="hideView">
           <template slot="name">
+            <span
+              v-if="isAgentSigning(detailData)"
+              class="signing-badge signing-badge--agent"
+              @click.stop>
+              <i class="wk wk-customer-solid" />
+              代理签约
+            </span>
+            <el-tooltip
+              v-if="isAgentSigning(detailData) && detailData.dealer_customer_id"
+              :content="detailData.dealer_customer_name || ('客户#' + detailData.dealer_customer_id)"
+              effect="dark"
+              placement="top">
+              <span
+                class="signing-dealer-name"
+                @click.stop="goDealerDetail(detailData.dealer_customer_id)">{{ detailData.dealer_customer_name || ('客户#' + detailData.dealer_customer_id) }}</span>
+            </el-tooltip>
+            <span
+              v-if="!isAgentSigning(detailData)"
+              class="signing-badge signing-badge--direct"
+              @click.stop>
+              <i class="wk wk-contract" />
+              直签
+            </span>
             <el-tooltip :content="detailData.star == 0 ? '添加关注' : '取消关注'" effect="dark" placement="top">
               <i
                 :class="{active: detailData.star != 0}"
@@ -105,6 +128,9 @@
             </a>
           </flexbox>
         </div>
+        <div v-if="canShowDetail && detailData && isSuperAdmin && detailData.is_end == 0" class="biz-rollback-bar">
+          <el-button size="mini" type="warning" plain @click="openRollbackDialog">阶段回退</el-button>
+        </div>
         <flexbox class="d-container-bd" align="stretch">
           <el-tabs
             v-model="tabCurrentName"
@@ -157,6 +183,24 @@
       :crm-type="crmType"
       @save-success="editSaveSuccess"
       @close="isCreate=false"/>
+
+    <el-dialog :visible.sync="rollbackDialog" title="阶段回退" width="500px" append-to-body>
+      <el-alert :closable="false" type="warning" show-icon class="rollback-alert" title="回退将处理该阶段之后产生的奖惩记录，请谨慎操作。" />
+      <el-form label-width="100px" size="small" style="margin-top:12px">
+        <el-form-item label="目标阶段">
+          <el-select v-model="rollbackForm.target_status_id" placeholder="选择回退目标阶段" style="width:100%">
+            <el-option v-for="s in rollbackStages" :key="s.status_id" :label="s.name" :value="s.status_id"/>
+          </el-select>
+        </el-form-item>
+        <el-form-item label="回退原因">
+          <el-input v-model="rollbackForm.reason" :rows="3" type="textarea" placeholder="请填写回退原因（必填）"/>
+        </el-form-item>
+      </el-form>
+      <span slot="footer">
+        <el-button @click="rollbackDialog=false">取消</el-button>
+        <el-button :loading="rollbackLoading" type="warning" @click="submitRollback">确认回退</el-button>
+      </span>
+    </el-dialog>
   </slide-view>
 </template>
 
@@ -164,6 +208,7 @@
 import {
   crmBusinessReadAPI,
   crmBusinessAdvanceAPI,
+  crmBusinessStageRollbackAPI,
   crmBusinessStatusByIdAPI
 } from '@/api/crm/business'
 
@@ -270,10 +315,24 @@ export default {
       // 展示重要信息
       showImportInfo: true,
       // 首要联系人信息
-      firstContactsId: ''
+      firstContactsId: '',
+      // 阶段回退
+      rollbackDialog: false,
+      rollbackLoading: false,
+      rollbackForm: { target_status_id: '', reason: '' }
     }
   },
   computed: {
+    isSuperAdmin() {
+      // 前端仅控制按钮可见性，后端 stageRollback 方法会再次校验 isSuperAdministrators
+      const allAuth = this.$store.getters.allAuth || {}
+      return !!(allAuth.manage || (allAuth.system && allAuth.system.manage) || (allAuth.admin && allAuth.admin.manage))
+    },
+    rollbackStages() {
+      if (!this.status || !this.status.length) return []
+      const currentIdx = this.status.findIndex(s => s.class && s.class.indexOf('state-suc') >= 0)
+      return this.status.filter((s, i) => i < (currentIdx >= 0 ? currentIdx : this.status.length) && s.status_id)
+    },
     financeRecordAuth() {
       const allAuth = this.$store.getters.allAuth || {}
       return (allAuth.finance && allAuth.finance.record) || {}
@@ -399,6 +458,39 @@ export default {
   },
   mounted() {},
   methods: {
+    isAgentSigning(row) {
+      return Number(row && row.dealer_customer_id) > 0
+    },
+    goDealerDetail(customerId) {
+      // 跳转客户详情（商机详情显示签约代理商名称并可跳转客户详情，不显示数字 ID）
+      if (!customerId) return
+      this.$router.push({ name: 'customer-detail', params: { id: customerId }}).catch(() => {})
+    },
+    openRollbackDialog() {
+      this.rollbackForm = { target_status_id: '', reason: '' }
+      this.rollbackDialog = true
+    },
+    submitRollback() {
+      if (!this.rollbackForm.target_status_id) { this.$message.warning('请选择目标回退阶段'); return }
+      if (!this.rollbackForm.reason) { this.$message.warning('请填写回退原因'); return }
+      this.$confirm('确认回退到所选阶段？这将处理该阶段之后产生的奖惩记录。', '确认回退', {
+        confirmButtonText: '确认回退',
+        cancelButtonText: '取消',
+        type: 'warning'
+      }).then(() => {
+        this.rollbackLoading = true
+        crmBusinessStageRollbackAPI({
+          business_id: this.id,
+          target_status_id: this.rollbackForm.target_status_id,
+          reason: this.rollbackForm.reason
+        }).then(res => {
+          this.$message.success((res.data && res.data.note) || '阶段回退成功')
+          this.rollbackDialog = false
+          this.getDetial()
+        }).catch(() => {}).finally(() => { this.rollbackLoading = false })
+      }).catch(() => {})
+    },
+
     /**
      * 详情
      */
@@ -841,5 +933,53 @@ export default {
   .state-handel-item:hover {
     background-color: #f7f8fa;
   }
+}
+
+.biz-rollback-bar {
+  padding: 4px 15px;
+  text-align: right;
+}
+.signing-badge {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 7px;
+  margin-left: 8px;
+  border-radius: 3px;
+  font-size: 12px;
+  line-height: 1;
+  white-space: nowrap;
+  flex-shrink: 0;
+  i {
+    margin-right: 3px;
+    font-size: 12px;
+  }
+}
+.signing-badge--agent {
+  color: #F59A23;
+  background: #FDF6EC;
+  border: 1px solid #F5DAB1;
+}
+.signing-badge--direct {
+  color: #00A870;
+  background: #E8F8F2;
+  border: 1px solid #B7E8D5;
+}
+.signing-dealer-name {
+  margin-left: 6px;
+  font-size: 12px;
+  color: #606266;
+  cursor: pointer;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex-shrink: 1;
+}
+.signing-dealer-name:hover {
+  color: #2362FB;
+}
+.rollback-alert {
+  margin-bottom: 8px;
 }
 </style>

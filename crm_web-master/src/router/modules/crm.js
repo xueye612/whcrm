@@ -221,22 +221,16 @@ export default [
       }
     }]
   },
-  // ===== P2 线索池 / P3 行业机会 / P5 奖励候选 / P6 季度绩效 =====
-  {
-    ...layout({ permissions: ['crm', 'leadpool', 'poolread'] }),
-    children: [{ path: 'leadpool', component: () => import('@/views/crm/leadpool'), meta: { title: '原始数据池', icon: 'record' } }]
-  },
-  {
-    ...layout({ permissions: ['crm', 'opportunity', 'opplist'] }),
-    children: [{ path: 'opportunity', component: () => import('@/views/crm/opportunity'), meta: { title: '行业机会', icon: 'business' } }]
-  },
+  // ===== P2 原始数据池已合并至正式线索 /crm/leads（不重复维护）=====
+  // P3 行业机会已合并至正式商机 /crm/business（不重复维护）=====
+  // P5 奖惩 / P6 绩效 保留
   {
     ...layout({ permissions: ['crm', 'reward', 'candidatelist'] }),
-    children: [{ path: 'reward', component: () => import('@/views/crm/reward'), meta: { title: '奖励候选', icon: 'money' } }]
+    children: [{ path: 'reward', component: () => import('@/views/crm/reward'), meta: { title: '奖惩', icon: 'money' }}]
   },
   {
     ...layout({ permissions: ['crm', 'performance', 'summarylist'] }),
-    children: [{ path: 'performance', component: () => import('@/views/crm/performance'), meta: { title: '季度绩效', icon: 'results' } }]
+    children: [{ path: 'performance', component: () => import('@/views/crm/performance'), meta: { title: '绩效', icon: 'performance' }}]
   }
 ]
 

@@ -41,7 +41,9 @@ class WorkflowService
     private static $rLevels = ['R1', 'R2', 'R3', 'R4', 'R5'];
     private static $kLevels = ['K1', 'K2', 'K3', 'K4'];
 
-    // ========== 中文定义（前后端共享）==========
+    // ========== 中文定义（前后端共享，单一数据源）==========
+    // W = Workload（工作量），R = Risk（风险等级），K = 专业确认等级
+    // 注意：K 数值越高表示需要的专业确认/依据要求越高，不是"越成熟"。
     public static function wrkDictionary()
     {
         return [
@@ -60,10 +62,10 @@ class WorkflowService
                 'R5' => '涉及患者安全、正式医疗文书真实性、核心数据、重大连续运行、法律合规或核心架构风险',
             ],
             'K' => [
-                'K1' => '成熟',
-                'K2' => '基本明确',
-                'K3' => '需要专业确认',
-                'K4' => '必须有正式专业依据',
+                'K1' => '成熟，已有成熟方案、标准流程和充分经验，可按现有方案执行',
+                'K2' => '基本明确，主要方案已明确，仍需结合具体环境进行一般性确认',
+                'K3' => '需要专业确认，存在专业判断或关键不确定性，必须由具备相应专业能力的人员确认',
+                'K4' => '必须有正式专业依据，涉及医疗、法律、财务、合规、核心架构或其他重大专业事项，必须提供正式依据并完成专业确认',
             ],
         ];
     }
@@ -93,6 +95,7 @@ class WorkflowService
         return [
             // 主流程
             'evaluate'              => [self::STATUS_PENDING_EVAL  => self::STATUS_PENDING_HANDLE],
+            'skip_evaluate'         => [self::STATUS_PENDING_EVAL  => self::STATUS_PENDING_HANDLE],
             'start'                 => [self::STATUS_PENDING_HANDLE => self::STATUS_PROCESSING],
             'submit_acceptance'     => [self::STATUS_PROCESSING     => self::STATUS_ACCEPTANCE],
             'acceptance_pass'       => [self::STATUS_ACCEPTANCE     => self::STATUS_RELEASE],
@@ -103,6 +106,7 @@ class WorkflowService
             'customer_confirm'      => [self::STATUS_CUSTOMER       => self::STATUS_DONE],
             'customer_return'       => [self::STATUS_CUSTOMER       => self::STATUS_PROCESSING],
             'complete'              => [self::STATUS_RELEASE        => self::STATUS_DONE],
+            'rollback_to_pending'   => [self::STATUS_PROCESSING     => self::STATUS_PENDING_HANDLE],
         ];
     }
 
@@ -163,7 +167,7 @@ class WorkflowService
      * 读取任务工作流扩展行；不存在时按 workflow_version=2 创建初始行。
      * 旧任务（无扩展行）调用此方法不会自动创建，除非 $create 为 true。
      */
-    public function getWorkflow($taskId, $create = false)
+    public static function getWorkflow($taskId, $create = false)
     {
         $taskId = (int)$taskId;
         if ($taskId <= 0) {
@@ -321,65 +325,54 @@ class WorkflowService
     const TEST_TYPE_BUSINESS = 'business';       // 非开发人员业务测试
 
     /**
-     * 检查 originTaskId 的发布门禁：必需测试齐全且符合要求、K3/K4 专业确认、R4/R5 风险说明。
-     * need_release=1 时，零必需测试或缺少开发自测/业务测试必须拒绝。
+     * 检查 originTaskId 的发布门禁。
+     *
+     * 新规则（按需测试）：
+     *   - 原任务没有测试任务：测试检查直接通过。
+     *   - 原任务存在测试任务：
+     *     - 所有测试任务均已提交反馈（submit_status=submitted）：通过；
+     *     - 存在未反馈测试任务（submit_status=not_submitted）：返回明确提示。
+     *   - 不再检查 test_type、is_required、review_status、开发自测或业务测试数量。
+     *   - "发现问题"本身不自动判定发布失败。
+     *
+     * W/R/K 专业确认/风险说明：
+     *   - 仅当任务填写了 W/R/K（即进行了评估）时才检查 K3/K4 和 R4/R5。
+     *   - 跳过评估的任务不因缺少 W/R/K 被拦截。
+     *
      * 返回 [bool $ok, string $reason]。
      */
     public function checkReleaseGate($originTaskId)
     {
         $originTaskId = (int)$originTaskId;
-        // 必需测试任务
-        $required = Db::name('task_test_ext')
-            ->where(['origin_task_id' => $originTaskId, 'is_required' => 1])
+        // 测试任务检查：无测试任务直接通过；有未反馈测试任务则拦截
+        $allTestExts = Db::name('task_test_ext')
+            ->where(['origin_task_id' => $originTaskId])
             ->select();
-        // 零必需测试必须拒绝
-        if (!$required) {
-            return [false, '缺少必需测试任务（至少需要开发自测和业务测试各一条）'];
-        }
-        // 必须同时存在开发自测和业务测试两类必需任务
-        $hasDevSelf = false;
-        $hasBusiness = false;
-        $devSelfCompliant = false;
-        $businessCompliant = false;
-        foreach ($required as $ext) {
-            if ($ext['test_type'] === self::TEST_TYPE_DEV_SELF) {
-                $hasDevSelf = true;
-                $devSelfCompliant = ($ext['review_status'] === self::REVIEW_COMPLIANT);
-            }
-            if ($ext['test_type'] === self::TEST_TYPE_BUSINESS) {
-                $hasBusiness = true;
-                $businessCompliant = ($ext['review_status'] === self::REVIEW_COMPLIANT);
+        // 排除软删除的测试任务
+        $testExts = [];
+        foreach ($allTestExts as $ext) {
+            if (!isset($ext['is_deleted']) || (int)$ext['is_deleted'] === 0) {
+                $testExts[] = $ext;
             }
         }
-        if (!$hasDevSelf) {
-            return [false, '缺少开发自测必需测试任务'];
-        }
-        if (!$hasBusiness) {
-            return [false, '缺少非开发人员业务测试必需测试任务'];
-        }
-        if (!$devSelfCompliant) {
-            return [false, '开发自测任务尚未符合要求'];
-        }
-        if (!$businessCompliant) {
-            return [false, '业务测试任务尚未符合要求'];
-        }
-        // 其余必需测试也必须全部符合要求
-        foreach ($required as $ext) {
-            if ($ext['review_status'] !== self::REVIEW_COMPLIANT) {
-                $taskName = Db::name('task')->where('task_id', $ext['task_id'])->value('name');
-                return [false, '必需测试任务尚未符合要求：' . ($taskName ?: '#' . $ext['task_id'])];
+        if ($testExts) {
+            foreach ($testExts as $ext) {
+                if ($ext['submit_status'] !== 'submitted') {
+                    $taskName = (string)Db::name('task')->where('task_id', $ext['task_id'])->value('name');
+                    return [false, '测试尚未完成：测试任务《' . ($taskName ?: '#' . $ext['task_id']) . '》还未反馈'];
+                }
             }
         }
-        // K3/K4 专业确认（基于最终 K，未填则取初始 K）
+        // K3/K4 专业确认（基于最终 K，未填则取初始 K）；跳过评估的任务无 W/R/K 不检查
         $wf = $this->getWorkflow($originTaskId);
         if ($wf) {
             $k = !empty($wf['final_k']) ? $wf['final_k'] : (isset($wf['init_k']) ? $wf['init_k'] : '');
-            if (($k === 'K3' || $k === 'K4') && empty($wf['professional_confirm'])) {
+            if (!empty($k) && ($k === 'K3' || $k === 'K4') && empty($wf['professional_confirm'])) {
                 return [false, $k . ' 任务缺少专业确认依据，不能申请发布'];
             }
             // R4/R5 风险说明
             $r = !empty($wf['final_r']) ? $wf['final_r'] : (isset($wf['init_r']) ? $wf['init_r'] : '');
-            if (($r === 'R4' || $r === 'R5') && empty($wf['risk_note'])) {
+            if (!empty($r) && ($r === 'R4' || $r === 'R5') && empty($wf['risk_note'])) {
                 return [false, $r . ' 任务缺少风险/备份/回滚说明，不能申请发布'];
             }
         }
@@ -442,7 +435,10 @@ class WorkflowService
     }
 
     /**
-     * 校验测试任务是否可提交（提交状态必须为未提交或被退回后）。
+     * 校验测试任务是否可提交。
+     * 规则：必须是当前轮次未提交（submit_status=not_submitted）。
+     * 新流程中提交后测试任务直接完成，不再进入待评定。
+     * 已提交的禁止重复提交，避免生成多余历史记录。
      */
     public function canSubmitTest($testTaskId)
     {
@@ -450,10 +446,89 @@ class WorkflowService
         if (!$ext) {
             return [false, '测试任务不存在'];
         }
-        // 已符合要求的不再允许提交
+        // 已合格的永久禁止再次提交（兼容旧数据）
         if ($ext['review_status'] === self::REVIEW_COMPLIANT) {
-            return [false, '该测试任务已符合要求，无需再次提交'];
+            return [false, '该测试任务已完成，无需再次提交'];
+        }
+        // 已提交禁止重复提交（只有 not_submitted 才允许）
+        if ($ext['submit_status'] === 'submitted') {
+            return [false, '测试结果已提交，不能重复提交'];
         }
         return [true, ''];
+    }
+
+    /**
+     * 计算测试任务的展示状态：待反馈 / 已反馈 / 已逾期。
+     * 兼容旧数据：submit_status=submitted 视为已反馈，not_submitted 视为待反馈或已逾期。
+     */
+    public static function testDisplayStatus(array $ext)
+    {
+        $now = time();
+        if ($ext['submit_status'] === 'submitted') {
+            return '已反馈';
+        }
+        $deadline = isset($ext['deadline']) ? (int)$ext['deadline'] : 0;
+        if ($deadline > 0 && $deadline < $now) {
+            return '已逾期';
+        }
+        return '待反馈';
+    }
+
+    /**
+     * 批量解析用户ID到真实姓名映射。
+     * @param array $userIds
+     * @return array [userId => realname]
+     */
+    public function resolveUserNames(array $userIds)
+    {
+        $result = [];
+        $userIds = array_values(array_unique(array_filter(array_map('intval', $userIds), function ($v) {
+            return $v > 0;
+        })));
+        if (!$userIds) {
+            return $result;
+        }
+        $rows = Db::name('admin_user')->whereIn('id', $userIds)->column('realname', 'id');
+        foreach ($rows as $uid => $name) {
+            $result[(int)$uid] = $name;
+        }
+        return $result;
+    }
+
+    /**
+     * 测试类型内部代码转中文名称。
+     */
+    public static function testTypeName($code)
+    {
+        $dict = self::testTypeDictionary();
+        return isset($dict[$code]) ? $dict[$code] : $code;
+    }
+
+    /**
+     * 评定状态代码转中文。
+     */
+    public static function reviewStatusName($status)
+    {
+        $map = [
+            self::REVIEW_PENDING => '待评定',
+            self::REVIEW_COMPLIANT => '合格',
+            self::REVIEW_NON_COMPLY => '不合格',
+        ];
+        return isset($map[$status]) ? $map[$status] : $status;
+    }
+
+    /**
+     * 将测试扩展行补充可读字段（task_name, origin_task_name）。
+     * @param array $ext
+     * @param string $testTaskName
+     * @param string $originTaskName
+     * @return array
+     */
+    public function enrichTestExt(array $ext, $testTaskName = '', $originTaskName = '')
+    {
+        $ext['task_name'] = $testTaskName;
+        $ext['origin_task_name'] = $originTaskName;
+        $ext['test_type_name'] = self::testTypeName((string)$ext['test_type']);
+        return $ext;
     }
 }

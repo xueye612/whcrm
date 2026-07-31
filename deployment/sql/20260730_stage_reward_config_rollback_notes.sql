@@ -1,0 +1,22 @@
+-- 20260730_stage_reward_config_rollback_notes.sql
+-- 回滚说明（人工执行，本文件仅说明，不自动执行）
+-- -------------------------------------------------------------------
+-- 本迁移是幂等的“补齐/增强”迁移，一般无需回滚。如确需回滚：
+--
+-- 1) 移除 business_stage_reward_rule.update_user_id 列（可选）
+--    ALTER TABLE `5kcrm_business_stage_reward_rule` DROP COLUMN `update_user_id`;
+--
+-- 2) 删除审计表（会丢失规则变更历史，谨慎）
+--    DROP TABLE IF EXISTS `5kcrm_reward_rule_audit`;
+--
+-- 注意：
+--   - 第3-5步创建的默认类型/阶段/规则为“新环境可用”的兜底数据，
+--     生产环境若已由 20260729_biz_status_group_reorg_forward 建立并迁移过历史商机，
+--     则本迁移不会重复创建（WHERE NOT EXISTS 保护）。回滚这些数据可能破坏
+--     已存在的商机关联，不建议在生产删除 type_id=100/101 及其阶段/规则。
+--   - 第6步 rule_name 回填为展示用，回滚无业务影响。
+--   - reward_candidate 历史快照（amount/rules_version/rule_id）本迁移未触碰，
+--     回滚不影响已生成奖励记录。
+--
+-- 备份建议（执行本迁移前）：
+--    mysqldump -u root -p crm 5kcrm_business_stage_reward_rule 5kcrm_crm_business_type 5kcrm_crm_business_status > backup_stage_reward_<timestamp>.sql

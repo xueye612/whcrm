@@ -154,18 +154,33 @@ class Receivables extends ApiCommon
             $param['check_status'] = 7;
         }
         
-        $res = $receivablesModel->createData($param);
-        if ($res) {
+        // Use full transaction covering receivables, plan, number, finance
+        \think\Db::startTrans();
+        try {
+            $res = $receivablesModel->createData($param);
+            if (!$res) {
+                throw new \Exception($receivablesModel->getError());
+            }
+            $recvId = $res['receivables_id'];
             //回款计划关联
             if ($param['plan_id']) {
-                db('crm_receivables_plan')->where(['plan_id' => $param['plan_id']])->update(['receivables_id' => $res['receivables_id']]);
+                db('crm_receivables_plan')->where(['plan_id' => $param['plan_id']])->update(['receivables_id' => $recvId]);
             }
             # 更新crm_number_sequence表中的last_date、create_time字段
             if (!empty($numberInfo['data'])) (new NumberSequence())->batchUpdate($numberInfo['data']);
-            
+
+            // 免审回款(check_status=7)直接生成收支记录
+            if (isset($param['check_status']) && (int)$param['check_status'] === 7) {
+                list($fok, $fdata) = \app\crm\logic\FinanceService::generateFromReceivable($recvId, $userInfo['id']);
+                if (!$fok) {
+                    throw new \Exception('收支生成失败: ' . $fdata);
+                }
+            }
+            \think\Db::commit();
             return resultArray(['data' => '添加成功']);
-        } else {
-            return resultArray(['error' => $receivablesModel->getError()]);
+        } catch (\Exception $e) {
+            \think\Db::rollback();
+            return resultArray(['error' => $e->getMessage()]);
         }
     }
     
@@ -449,7 +464,32 @@ class Receivables extends ApiCommon
         }
         //已审批人ID
         $receivablesData['flow_user_id'] = stringToArray($dataInfo['flow_user_id']) ? arrayToString(array_merge(stringToArray($dataInfo['flow_user_id']), [$user_id])) : arrayToString([$user_id]);
-        $resReceivables = db('crm_receivables')->where(['receivables_id' => $param['id']])->update($receivablesData);
+        // Full transaction: update receivables + finance generate/offset
+        \think\Db::startTrans();
+        try {
+            $resReceivables = db('crm_receivables')->where(['receivables_id' => $param['id']])->update($receivablesData);
+            if (!$resReceivables) {
+                throw new \Exception('回款状态更新失败');
+            }
+            // 审批通过且check_status=2时自动生成收支记录
+            if (!empty($checkData['check_status']) && (int)$checkData['check_status'] === 2) {
+                list($fok, $fdata) = \app\crm\logic\FinanceService::generateFromReceivable($param['id'], $user_id);
+                if (!$fok) {
+                    throw new \Exception('收支生成失败: ' . $fdata);
+                }
+            }
+            // 审批驳回(check_status=3)时冲销
+            if (isset($receivablesData['check_status']) && (int)$receivablesData['check_status'] === 3) {
+                list($fok2, $fdata2) = \app\crm\logic\FinanceService::offsetFromReceivable($param['id'], $user_id, 'rejected');
+                if (!$fok2) {
+                    throw new \Exception('冲销失败: ' . $fdata2);
+                }
+            }
+            \think\Db::commit();
+        } catch (\Exception $e) {
+            \think\Db::rollback();
+            return resultArray(['error' => $e->getMessage()]);
+        }
         if ($resReceivables) {
             if ($status) {
                 // 审批通过，通知下一审批人
@@ -555,15 +595,25 @@ class Receivables extends ApiCommon
         $receivablesData['check_status'] = 4;
         $receivablesData['check_user_id'] = '';
         $receivablesData['flow_user_id'] = '';
-        $resReceivables = db('crm_receivables')->where(['receivables_id' => $param['id']])->update($receivablesData);
-        if ($resReceivables) {
-            //将审批记录至为无效
-            // $examineRecordModel->setEnd(['types' => 'crm_receivables','types_id' => $param['id']]);
+        // Full transaction: update receivables + offset finance + examine record
+        \think\Db::startTrans();
+        try {
+            $resReceivables = db('crm_receivables')->where(['receivables_id' => $param['id']])->update($receivablesData);
+            if (!$resReceivables) {
+                throw new \Exception('回款状态更新失败');
+            }
+            // Revoke triggers finance offset (check_status 4 = cancelled)
+            list($fok, $fdata) = \app\crm\logic\FinanceService::offsetFromReceivable($param['id'], $user_id, 'revoked');
+            if (!$fok) {
+                throw new \Exception('冲销失败: ' . $fdata);
+            }
             //审批记录
             $resRecord = $examineRecordModel->createData($checkData);
+            \think\Db::commit();
             return resultArray(['data' => '撤销成功']);
-        } else {
-            return resultArray(['error' => '撤销失败，请重试！']);
+        } catch (\Exception $e) {
+            \think\Db::rollback();
+            return resultArray(['error' => $e->getMessage()]);
         }
     }
     

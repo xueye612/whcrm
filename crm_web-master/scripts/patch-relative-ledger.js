@@ -133,7 +133,6 @@ const methodBlocks = [
       const map = {
         '待处理': 'info',
         '处理中': 'warning',
-        '待验证': 'warning',
         '待发布': '',
         '已完成': 'success',
         '已关闭': 'danger'

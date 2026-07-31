@@ -1,0 +1,35 @@
+-- ============================================================
+-- 第二段 rollback_notes（不可逆操作说明 + 恢复路径）
+-- 注意：DELETE type_id=6..33 是物理删除；恢复路径依赖外部备份
+-- ============================================================
+-- 回滚顺序：
+-- 1) 还原表数据（schema 与 data）从外部备份恢复：
+--    D:\Users\SN\.codex\backups\whcrm\final_close_<timestamp>\crm_business_type.full.sql
+--    执行：
+--      mysql -u root -p crm < crm_business_type.full.sql
+--    （备份文件已包含 DROP/CREATE/INSERT，可直接还原原表结构）
+--
+-- 2) 如已添加 business_category / business_category_key / uk_business_category：
+--    如备份恢复后多余索引存在，可手动清理：
+--      ALTER TABLE `5kcrm_crm_business_type` DROP INDEX `uk_business_category`;
+--      ALTER TABLE `5kcrm_business_type` DROP COLUMN `business_category_key`;
+--      ALTER TABLE `5kcrm_crm_business_type` DROP COLUMN `business_category`;
+--    但通常恢复备份即可一并还原（备份文件不包含新列）。
+--
+-- 3) 校验数据完整性：
+--      SELECT type_id, COUNT(*) FROM 5kcrm_crm_business GROUP BY type_id;
+--      SELECT * FROM 5kcrm_crm_business_type ORDER BY type_id;
+--    应与 precheck snapshot 行数一致。
+--
+-- 4) 如 forward 已成功且事后又出现重复 type_id=6..33：
+--    说明原 INSERT IGNORE 模板被再次触发，应立即定位 migration runner，
+--    禁止再调用原 20260727_crm_arch_forward_migration.sql 的第 5 段
+--    （已通过本文件 forward 第 5 步以 UPDATE 取代 INSERT IGNORE）。
+--
+-- 5) 业务侧影响：
+--    - 删除 type_id=6..33 不会影响任何现有 26 条 type_id=2 商机（已 precheck 确认）
+--    - business_category 仅作为稳定业务类别绑定，不参与原 statusList 缓存键
+--    - 如缓存出现旧类型残留，前端调用 /crm/business/statusList 即可刷新
+--      （后端 Business::statusList 已使用 cache()，重新调用即 NULL 后重建）
+-- ============================================================
+SELECT 'rollback_notes_final_biz_type' AS note;

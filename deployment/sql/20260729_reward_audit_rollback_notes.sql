@@ -1,0 +1,23 @@
+-- =====================================================================
+-- 20260729_reward_audit_rollback_notes.sql
+-- 回滚说明
+-- =====================================================================
+--
+-- 1. 删除审计表：
+--    DROP TABLE IF EXISTS `5kcrm_reward_candidate_audit`;
+--
+-- 2. 删除规则扩展列（按逆序）：
+--    ALTER TABLE `5kcrm_business_stage_reward_rule` DROP COLUMN `description`;
+--    ALTER TABLE `5kcrm_business_stage_reward_rule` DROP COLUMN `expiry_date`;
+--    ALTER TABLE `5kcrm_business_stage_reward_rule` DROP COLUMN `effective_date`;
+--    ALTER TABLE `5kcrm_business_stage_reward_rule` DROP COLUMN `auto_generate`;
+--    ALTER TABLE `5kcrm_business_stage_reward_rule` DROP COLUMN `need_review`;
+--    ALTER TABLE `5kcrm_business_stage_reward_rule` DROP COLUMN `monthly_cap`;
+--    ALTER TABLE `5kcrm_business_stage_reward_rule` DROP COLUMN `single_cap`;
+--    ALTER TABLE `5kcrm_business_stage_reward_rule` DROP COLUMN `calc_method`;
+--    ALTER TABLE `5kcrm_business_stage_reward_rule` DROP COLUMN `direction`;
+--    ALTER TABLE `5kcrm_business_stage_reward_rule` DROP COLUMN `rule_name`;
+--
+-- 注意：回滚前确认无依赖代码运行。审计表中的历史记录将丢失。
+-- =====================================================================
+SELECT 'rollback notes for 20260729_reward_audit' AS info;

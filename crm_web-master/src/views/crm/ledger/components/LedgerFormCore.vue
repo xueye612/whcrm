@@ -5,7 +5,7 @@
     </el-form-item>
     <el-form-item label="问题内容" prop="description">
       <slot name="description">
-        <el-input v-model="localForm.description" type="textarea" :rows="4" placeholder="请描述问题" />
+        <el-input v-model="localForm.description" :rows="4" type="textarea" placeholder="请描述问题" />
       </slot>
     </el-form-item>
     <el-form-item label="问题分类">

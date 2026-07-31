@@ -1,4 +1,4 @@
-export const LEDGER_STATUS_OPTIONS = ['待处理', '处理中', '待验证', '待发布', '已完成', '已关闭']
+export const LEDGER_STATUS_OPTIONS = ['待处理', '处理中', '待发布', '已完成', '已关闭']
 
 export const LEDGER_CHANNEL_OPTIONS = ['微信', '电话', '现场', '转述', '其他']
 
@@ -10,7 +10,6 @@ export function statusTagType(status) {
   const map = {
     '待处理': 'info',
     '处理中': 'warning',
-    '待验证': 'warning',
     '待发布': '',
     '已完成': 'success',
     '已关闭': 'danger'
@@ -29,12 +28,12 @@ export function formatContractOption(item) {
   const contractId = item.contract_id || item.id
   const fullName = item.name || item.num || item.contract_name || item.contract_num || `合同#${contractId || ''}`
   const shortName = item.crm_defqwa || item.contract_short_name || ''
-  const customerName = item.customer_name
-    || (item.customer_id_info && item.customer_id_info.name)
-    || ''
-  const customerId = item.customer_id
-    || (item.customer_id_info && item.customer_id_info.customer_id)
-    || ''
+  const customerName = item.customer_name ||
+    (item.customer_id_info && item.customer_id_info.name) ||
+    ''
+  const customerId = item.customer_id ||
+    (item.customer_id_info && item.customer_id_info.customer_id) ||
+    ''
   const contractDisplay = shortName || (fullName.length > 10 ? `${fullName.slice(0, 10)}...` : fullName)
   const optionLabel = customerName ? `${customerName} · ${contractDisplay}` : contractDisplay
   return Object.assign({}, item, {

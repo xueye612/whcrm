@@ -1,0 +1,31 @@
+-- =====================================================================
+-- 20260729_biz_status_group_reorg_rollback_notes.sql
+-- 回滚说明：状态组重组后的回滚步骤（手动执行）
+-- =====================================================================
+-- 回滚步骤（仅在确认需要回滚时执行）：
+--
+-- 1. 恢复旧组可见性（如需）：
+--    UPDATE 5kcrm_crm_business_type SET is_display=1, status=1 WHERE type_id IN (2,3,4,5);
+--    UPDATE 5kcrm_crm_business_type SET business_category='dealer_dev' WHERE type_id=2;
+--    UPDATE 5kcrm_crm_business_type SET business_category='hospital_direct' WHERE type_id=3;
+--    UPDATE 5kcrm_crm_business_type SET business_category='hospital_agent' WHERE type_id=4;
+--    UPDATE 5kcrm_crm_business_type SET business_category='outsource' WHERE type_id=5;
+--
+-- 2. 将商机 type_id 回退到旧组（需根据迁移前备份手动恢复）
+--
+-- 3. 隐藏新组（如需）：
+--    UPDATE 5kcrm_crm_business_type SET is_display=0 WHERE type_id IN (100,101);
+--
+-- 4. 删除新组阶段和奖励规则（如需）：
+--    DELETE FROM 5kcrm_business_stage_reward_rule WHERE type_id IN (100,101);
+--    DELETE FROM 5kcrm_crm_business_status WHERE type_id IN (100,101);
+--
+-- 5. 删除配置项（如需）：
+--    DELETE FROM 5kcrm_crm_config WHERE name IN ('business_type_id_direct','business_type_id_agent');
+--
+-- 注意：
+-- - 新组(type_id=100,101)使用高ID，不与旧迁移(1-33)冲突
+-- - 旧组数据(type_id=2-5)未被删除，只是隐藏和清空了 business_category
+-- - 奖励规则从旧组复制，旧规则保留不删除
+-- =====================================================================
+SELECT 'rollback notes for biz_status_group_reorg' AS result;

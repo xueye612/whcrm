@@ -9,9 +9,9 @@
       <el-form-item label="交付等级"><el-select v-model="form.delivery_level" clearable style="width:200px"><el-option v-for="l in dict.delivery_levels" :key="l" :label="l" :value="l"/></el-select></el-form-item>
       <el-form-item label="到账收入"><el-input-number v-model="form.revenue" :min="0" controls-position="right"/></el-form-item>
       <el-form-item label="直接成本"><el-input-number v-model="form.direct_cost" :min="0" controls-position="right"/></el-form-item>
-      <el-form-item label="需求基线"><el-input v-model="form.requirement_baseline" type="textarea" :rows="2"/></el-form-item>
+      <el-form-item label="需求基线"><el-input v-model="form.requirement_baseline" :rows="2" type="textarea"/></el-form-item>
       <el-form-item label="奖金池比例"><span>奖励{{ form.reward_pct }}% / 商务费用{{ form.expense_pct }}%（默认2%/3%，可改）</span></el-form-item>
-      <el-form-item><el-button type="primary" :loading="saving" @click="saveProfile">保存档案(自动算毛利/池)</el-button>
+      <el-form-item><el-button :loading="saving" type="primary" @click="saveProfile">保存档案(自动算毛利/池)</el-button>
         <span style="margin-left:12px;color:#909399">毛利={{ margin }} 奖励池={{ pools.reward_pool }} 费用池={{ pools.expense_pool }}</span>
       </el-form-item>
     </el-form>
@@ -22,7 +22,7 @@
         <el-table-column label="比例%" width="160"><template slot-scope="s"><el-input-number v-model="s.row.percentage" :min="0" :max="100" controls-position="right" size="mini"/></template></el-table-column>
       </el-table>
       <div style="margin-top:8px">合计：{{ ratioSum }}% <span v-if="ratioSum>100" style="color:#f56c6c">（超过100%）</span></div>
-      <el-button type="primary" size="small" style="margin-top:8px" :loading="distting" @click="saveDist">保存分配</el-button>
+      <el-button :loading="distting" type="primary" size="small" style="margin-top:8px" @click="saveDist">保存分配</el-button>
       <el-button size="small" style="margin-top:8px" @click="fetchDist">读取分配</el-button>
     </div>
   </div>
@@ -37,7 +37,7 @@ export default {
   methods: {
     async fetchProfile() { if (!this.workId) return; const r = await outsourceProjectReadAPI({ work_id: Number(this.workId) }); const d = r.data || r; this.profile = d.profile; if (this.profile) { this.form = { delivery_level: this.profile.delivery_level || '', revenue: Number(this.profile.revenue) || 0, direct_cost: Number(this.profile.direct_cost) || 0, requirement_baseline: this.profile.requirement_baseline || '', reward_pct: Number(this.profile.reward_pct) || 2, expense_pct: Number(this.profile.expense_pct) || 3 }; this.margin = this.profile.gross_margin; this.pools = { reward_pool: this.profile.reward_pool, expense_pool: this.profile.expense_pool } } else { this.form = { delivery_level: '', revenue: 0, direct_cost: 0, requirement_baseline: '', reward_pct: 2, expense_pct: 3 }; this.profile = {} } },
     async saveProfile() { this.saving = true; try { const r = await outsourceProjectSaveAPI(Object.assign({ work_id: Number(this.workId) }, this.form)); const d = r.data || {}; this.margin = d.gross_margin; this.pools = { reward_pool: d.reward_pool, expense_pool: d.expense_pool }; this.$message.success('已保存') } finally { this.saving = false } },
-    async saveDist() { if (this.ratioSum > 100) { this.$message.error('总比例超过100%'); return }; this.distting = true; try { const r = await outsourceDistributeSaveAPI({ work_id: Number(this.workId), ratios: JSON.stringify(this.ratios) }); this.$message.success('已保存分配：' + JSON.stringify(r.data)) } finally { this.distting = false } },
+    async saveDist() { if (this.ratioSum > 100) { this.$message.error('总比例超过100%'); return } this.distting = true; try { const r = await outsourceDistributeSaveAPI({ work_id: Number(this.workId), ratios: JSON.stringify(this.ratios) }); this.$message.success('已保存分配：' + JSON.stringify(r.data)) } finally { this.distting = false } },
     async fetchDist() { const r = await outsourceDistributeReadAPI({ work_id: Number(this.workId) }); const rows = (r.data && r.data.rows) || []; if (rows.length) this.ratios = rows.map(x => ({ role: x.role_name, percentage: Number(x.percentage) })) }
   }
 }

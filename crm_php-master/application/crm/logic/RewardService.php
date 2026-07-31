@@ -18,6 +18,7 @@ class RewardService
     const ST_REJECTED = '已驳回';
     const ST_SETTLED = '已结算';
     const ST_OFFSET  = '已冲销';
+    const ST_VOIDED  = '已作废';       // 阶段回退时标记作废，可被重新推进时激活
 
     /** 制度已确认阈值/比例（非“待配置”） */
     const MONTHLY_CAP = 800.00;                  // 每人每月合计超过此值 → 专项审批
@@ -147,11 +148,121 @@ class RewardService
     {
         $start = strtotime(date('Y-m-01'));
         $end = strtotime('+1 month', $start);
+        // 仅统计正金额（奖励），处罚（负金额）不降低月度奖励累计值
         return (float)Db::name('reward_candidate')
             ->where('user_id', (int)$userId)
             ->whereIn('source_type', self::$basicVerifySources)
             ->whereIn('status', [self::ST_PENDING, self::ST_SPECIAL, self::ST_APPROVED])
+            ->where('amount', '>', 0)
             ->where('create_time', '>=', $start)->where('create_time', '<', $end)
             ->sum('amount');
+    }
+
+    /**
+     * 统一读取「商机阶段奖励规则」并关联商机类型与阶段的真实名称。
+     * 不再依赖前端硬编码名称，所有关联基于稳定 ID（type_id / status_id）。
+     *
+     * 返回每行含：
+     *   rule_id, type_id, type_name, type_is_active(crm_business_type.is_display),
+     *   type_status(crm_business_type.status), business_category,
+     *   status_id, stage_name(crm_business_status.name), stage_order(order_id),
+     *   is_terminal(order_id>=99), rule_name, amount, calc_method, is_enabled,
+     *   auto_generate, need_review, rules_version, description, update_time, update_user_id
+     */
+    public static function stageRewardRuleList($onlyActiveType = false)
+    {
+        // 用 r.* 避免硬编码可选列（calc_method/rule_name 等由 reward_audit 迁移补齐），
+        // update_user_id 由本迁移新增，单独判断
+        $fields = 'r.*, t.name as type_name, t.is_display as type_is_display, t.status as type_status, t.business_category, s.name as stage_name, s.order_id as stage_order';
+        $q = Db::name('business_stage_reward_rule')->alias('r')
+            ->join('__CRM_BUSINESS_TYPE__ t', 'r.type_id = t.type_id', 'LEFT')
+            ->join('__CRM_BUSINESS_STATUS__ s', 'r.status_id = s.status_id', 'LEFT');
+        if ($onlyActiveType) {
+            $q->where('t.is_display', 1);
+        }
+        $rows = $q->field($fields)->order('t.is_display desc, r.type_id asc, s.order_id asc, r.rule_id asc')->select();
+        if (!$rows) return [];
+        foreach ($rows as &$row) {
+            $row['type_name'] = isset($row['type_name']) && $row['type_name'] !== null ? $row['type_name'] : ('类型#' . ($row['type_id'] ?? 0));
+            $row['stage_name'] = isset($row['stage_name']) && $row['stage_name'] !== null ? $row['stage_name'] : ($row['rule_name'] ?: '阶段#' . ($row['status_id'] ?? 0));
+            $row['is_terminal'] = ((int)($row['stage_order'] ?? 0) >= 99) ? 1 : 0;
+            $row['stage_order'] = (int)($row['stage_order'] ?? 0);
+            $row['type_is_active'] = ((int)($row['type_is_display'] ?? 0) === 1) ? 1 : 0;
+            $row['update_user_id'] = (int)($row['update_user_id'] ?? 0);
+            $row['is_enabled'] = isset($row['is_enabled']) ? (int)$row['is_enabled'] : 1;
+            $row['auto_generate'] = isset($row['auto_generate']) ? (int)$row['auto_generate'] : 1;
+        }
+        unset($row);
+        return $rows;
+    }
+
+    /**
+     * 读取「启用的商机类型 + 其阶段 + 是否已配置奖励」用于配置页选择器与类型/阶段总览。
+     * 名称来自数据库，不硬编码。
+     */
+    public static function businessTypeStageTree()
+    {
+        $types = Db::name('crm_business_type')
+            ->where('is_display', 1)
+            ->order('type_id asc')
+            ->field('type_id,name,business_category,status,is_display')
+            ->select();
+        if (!$types) return [];
+        $ruleKeys = [];
+        $rules = self::stageRewardRuleList(false);
+        foreach ($rules as $r) {
+            $ruleKeys[$r['type_id'] . ':' . $r['status_id']] = $r;
+        }
+        foreach ($types as &$t) {
+            $stages = Db::name('crm_business_status')
+                ->where('type_id', $t['type_id'])
+                ->order('order_id asc')
+                ->field('status_id,name,order_id,rate')
+                ->select();
+            if (!$stages) $stages = [];
+            foreach ($stages as &$s) {
+                $key = $t['type_id'] . ':' . $s['status_id'];
+                $s['has_reward_rule'] = isset($ruleKeys[$key]) ? 1 : 0;
+                $s['is_terminal'] = ((int)$s['order_id'] >= 99) ? 1 : 0;
+            }
+            unset($s);
+            $t['stages'] = $stages;
+        }
+        unset($t);
+        return $types;
+    }
+
+    /**
+     * 写入阶段奖励规则变更审计（变更前后内容）。
+     * 审计表 reward_rule_audit 由迁移创建；不存在时仅记日志，不中断主流程。
+     */
+    public static function logRuleAudit($ruleId, $operationType, $oldData, $newData, $reason, $userInfo, $ip)
+    {
+        $now = time();
+        try {
+            Db::name('reward_rule_audit')->insert([
+                'rule_id'         => (int)$ruleId,
+                'operation_type'  => (string)$operationType,
+                'old_data_json'   => json_encode($oldData ?: [], JSON_UNESCAPED_UNICODE),
+                'new_data_json'   => json_encode($newData ?: [], JSON_UNESCAPED_UNICODE),
+                'change_reason'   => (string)$reason,
+                'operator_user_id'=> (int)($userInfo['id'] ?? 0),
+                'operator_name'   => (string)($userInfo['realname'] ?? ''),
+                'operation_time'  => $now,
+                'request_ip'      => (string)$ip,
+                'create_time'     => $now,
+            ]);
+        } catch (\Exception $e) {
+            \think\Log::record('reward_rule_audit 写入失败: ' . $e->getMessage(), 'error');
+        }
+    }
+
+    /** 判断 reward_rule 表是否已有某列（兼容迁移未执行环境） */
+    public static function ruleHasColumn($column)
+    {
+        $prefix = config('database.prefix') ?: '';
+        $tableName = $prefix . 'business_stage_reward_rule';
+        $row = Db::query("SELECT COUNT(*) AS cnt FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='" . addslashes($tableName) . "' AND COLUMN_NAME='" . addslashes($column) . "'");
+        return !empty($row) && (int)$row[0]['cnt'] > 0;
     }
 }

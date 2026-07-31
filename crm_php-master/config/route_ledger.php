@@ -18,6 +18,11 @@ return [
     'ledger/record/list' => ['ledger/record/list', ['method' => 'POST']],
     'ledger/record/add'  => ['ledger/record/add',  ['method' => 'POST']],
 
+    // Ledger P0+ extensions
+    'ledger/ledger/convertToTask' => ['ledger/ledger/convertToTask', ['method' => 'POST']],
+    'ledger/ledger/qualityCheck'  => ['ledger/ledger/qualityCheck', ['method' => 'POST']],
+    'ledger/ledger/statistics'    => ['ledger/ledger/statistics', ['method' => 'POST']],
+
     // MISS route
     '__miss__' => 'admin/base/miss',
 ];

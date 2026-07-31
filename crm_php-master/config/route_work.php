@@ -133,6 +133,7 @@ return [
     'work/task/wrkDictionary'      => ['work/task/wrkDictionary', ['method' => 'POST']],
     'work/task/workflowRead'       => ['work/task/workflowRead', ['method' => 'POST']],
     'work/task/evaluate'           => ['work/task/evaluate', ['method' => 'POST']],
+    'work/task/skipEvaluate'       => ['work/task/skipEvaluate', ['method' => 'POST']],
     'work/task/startProcess'       => ['work/task/startProcess', ['method' => 'POST']],
     'work/task/submitAcceptance'   => ['work/task/submitAcceptance', ['method' => 'POST']],
     'work/task/acceptancePass'     => ['work/task/acceptancePass', ['method' => 'POST']],
@@ -144,10 +145,14 @@ return [
     'work/task/completeTask'       => ['work/task/completeTask', ['method' => 'POST']],
     'work/task/setAuxStatus'       => ['work/task/setAuxStatus', ['method' => 'POST']],
     'work/task/setReleaseExemption'=> ['work/task/setReleaseExemption', ['method' => 'POST']],
+    'work/task/setStartTime'       => ['work/task/setStartTime', ['method' => 'POST']],
     'work/task/initiateTest'       => ['work/task/initiateTest', ['method' => 'POST']],
     'work/task/submitTest'         => ['work/task/submitTest', ['method' => 'POST']],
     'work/task/reviewTest'         => ['work/task/reviewTest', ['method' => 'POST']],
     'work/task/testList'           => ['work/task/testList', ['method' => 'POST']],
+    'work/task/testDetail'         => ['work/task/testDetail', ['method' => 'POST']],
+    'work/task/testHistory'       => ['work/task/testHistory', ['method' => 'POST']],
+    'work/task/deleteTest'        => ['work/task/deleteTest', ['method' => 'POST']],
 
 	//【标签】编辑
 	'work/tasklable/update' => ['work/tasklable/update', ['method' => 'POST']],		

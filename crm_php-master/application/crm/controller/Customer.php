@@ -87,10 +87,19 @@ class Customer extends ApiCommon
         $param['user_id'] = $userInfo['id'];
         $param['create_user_id'] = $userInfo['id'];
         $param['owner_user_id'] = $userInfo['id'];
-        if ($res = $customerModel->createData($param)) {
+
+        unset($param['signing_method'], $param['dealer_customer_id'], $param['customer_type']);
+
+        Db::startTrans();
+        try {
+            $res = $customerModel->createData($param);
+            if (!$res) throw new \Exception($customerModel->getError());
+
+            Db::commit();
             return resultArray(['data' => $res]);
-        } else {
-            return resultArray(['error' => $customerModel->getError()]);
+        } catch (\Exception $e) {
+            Db::rollback();
+            return resultArray(['error' => $e->getMessage()]);
         }
     }
 
@@ -137,17 +146,24 @@ class Customer extends ApiCommon
         $customerModel = model('Customer');
         $param = $this->param;
         $userInfo = $this->userInfo;
-        //数据详情
         $data = $customerModel->getDataById($param['id']);
         if (!$data) {
             return resultArray(['error' => $customerModel->getError()]);
         }
 
+        unset($param['signing_method'], $param['dealer_customer_id'], $param['customer_type']);
         $param['user_id'] = $userInfo['id'];
-        if ($customerModel->updateDataById($param, $param['id'])) {
+        Db::startTrans();
+        try {
+            if (!$customerModel->updateDataById($param, $param['id'])) {
+                throw new \Exception($customerModel->getError());
+            }
+
+            Db::commit();
             return resultArray(['data' => '编辑成功']);
-        } else {
-            return resultArray(['error' => $customerModel->getError()]);
+        } catch (\Exception $e) {
+            Db::rollback();
+            return resultArray(['error' => $e->getMessage()]);
         }
     }
 
@@ -1193,4 +1209,7 @@ class Customer extends ApiCommon
 
         return resultArray(['data' => $data]);
     }
+
+    // ===== Dealer-Hospital Relationship =====
+
 }

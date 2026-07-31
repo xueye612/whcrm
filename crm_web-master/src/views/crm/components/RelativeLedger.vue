@@ -234,91 +234,91 @@
     <el-dialog :visible.sync="detailVisible" title="台账详情" width="1080px" append-to-body class="ledger-detail-dialog">
       <div v-loading="detailLoading" class="ledger-detail">
         <div class="detail-content-grid">
-        <section class="detail-section detail-section-base">
-          <div class="section-title">基础信息</div>
-          <div class="kv-grid">
-            <div class="kv-item">
-              <div class="kv-label">客户</div>
-              <div class="kv-value">{{ ledgerDetail.customer_name || '—' }}</div>
-            </div>
-            <div class="kv-item">
-              <div class="kv-label">反馈问题</div>
-              <div class="kv-value">{{ ledgerDetail.title || '—' }}</div>
-            </div>
-            <div class="kv-item">
-              <div class="kv-label">问题分类</div>
-              <div class="kv-value">{{ ledgerDetail.category || '—' }}</div>
-            </div>
-            <div class="kv-item">
-              <div class="kv-label">处理状态</div>
-              <div class="kv-value">
-                <el-tag
-                  :type="statusTagType(ledgerDetail.status)"
-                  :class="statusTagClass(ledgerDetail.status)"
-                  size="mini">
-                  {{ ledgerDetail.status || '—' }}
-                </el-tag>
+          <section class="detail-section detail-section-base">
+            <div class="section-title">基础信息</div>
+            <div class="kv-grid">
+              <div class="kv-item">
+                <div class="kv-label">客户</div>
+                <div class="kv-value">{{ ledgerDetail.customer_name || '—' }}</div>
+              </div>
+              <div class="kv-item">
+                <div class="kv-label">反馈问题</div>
+                <div class="kv-value">{{ ledgerDetail.title || '—' }}</div>
+              </div>
+              <div class="kv-item">
+                <div class="kv-label">问题分类</div>
+                <div class="kv-value">{{ ledgerDetail.category || '—' }}</div>
+              </div>
+              <div class="kv-item">
+                <div class="kv-label">处理状态</div>
+                <div class="kv-value">
+                  <el-tag
+                    :type="statusTagType(ledgerDetail.status)"
+                    :class="statusTagClass(ledgerDetail.status)"
+                    size="mini">
+                    {{ ledgerDetail.status || '—' }}
+                  </el-tag>
+                </div>
+              </div>
+              <div class="kv-item">
+                <div class="kv-label">反馈人</div>
+                <div class="kv-value">{{ ledgerDetail.feedback_user || '—' }}</div>
+              </div>
+              <div class="kv-item">
+                <div class="kv-label">反馈渠道</div>
+                <div class="kv-value">{{ ledgerDetail.feedback_channel || '微信' }}</div>
+              </div>
+              <div class="kv-item">
+                <div class="kv-label">反馈时间</div>
+                <div class="kv-value">{{ formatDateTime(ledgerDetail.feedback_time || ledgerDetail.register_time) || '—' }}</div>
+              </div>
+              <div v-if="ledgerDetail.status === '已完成'" class="kv-item">
+                <div class="kv-label">完成时间</div>
+                <div class="kv-value">
+                  {{ formatDateTime(ledgerDetail.finish_time) || '—' }}
+                  <el-tag
+                    v-if="finishBadge.text"
+                    :type="finishBadge.type"
+                    size="mini"
+                    class="time-badge">
+                    {{ finishBadge.text }}
+                  </el-tag>
+                </div>
+              </div>
+              <div class="kv-item">
+                <div class="kv-label">登记人</div>
+                <div class="kv-value">{{ ledgerDetail.register_user_name || '—' }}</div>
+              </div>
+              <div class="kv-item">
+                <div class="kv-label">处理人</div>
+                <div class="kv-value">{{ ledgerDetail.handler_user_name || '—' }}</div>
               </div>
             </div>
-            <div class="kv-item">
-              <div class="kv-label">反馈人</div>
-              <div class="kv-value">{{ ledgerDetail.feedback_user || '—' }}</div>
-            </div>
-            <div class="kv-item">
-              <div class="kv-label">反馈渠道</div>
-              <div class="kv-value">{{ ledgerDetail.feedback_channel || '微信' }}</div>
-            </div>
-            <div class="kv-item">
-              <div class="kv-label">反馈时间</div>
-              <div class="kv-value">{{ formatDateTime(ledgerDetail.feedback_time || ledgerDetail.register_time) || '—' }}</div>
-            </div>
-            <div v-if="ledgerDetail.status === '已完成'" class="kv-item">
-              <div class="kv-label">完成时间</div>
-              <div class="kv-value">
-                {{ formatDateTime(ledgerDetail.finish_time) || '—' }}
-                <el-tag
-                  v-if="finishBadge.text"
-                  :type="finishBadge.type"
-                  size="mini"
-                  class="time-badge">
-                  {{ finishBadge.text }}
-                </el-tag>
+          </section>
+
+          <section class="detail-section detail-section-desc">
+            <div class="section-title">描述信息</div>
+            <div class="text-block">
+              <div class="text-label">问题描述</div>
+              <div v-if="ledgerDetail.description" class="text-value rich-text">
+                <wk-desc-text :value="ledgerDetail.description" />
               </div>
+              <div v-else class="text-value">—</div>
             </div>
-            <div class="kv-item">
-              <div class="kv-label">登记人</div>
-              <div class="kv-value">{{ ledgerDetail.register_user_name || '—' }}</div>
+            <div v-if="detailCompletedReply" class="text-block">
+              <div class="text-label">回复记录</div>
+              <div class="text-value">{{ detailCompletedReply }}</div>
             </div>
-            <div class="kv-item">
-              <div class="kv-label">处理人</div>
-              <div class="kv-value">{{ ledgerDetail.handler_user_name || '—' }}</div>
+            <div v-if="detailClosedReason" class="text-block">
+              <div class="text-label">关闭原因</div>
+              <div class="text-value">{{ detailClosedReason }}</div>
             </div>
-          </div>
-        </section>
+          </section>
 
-        <section class="detail-section detail-section-desc">
-          <div class="section-title">描述信息</div>
-          <div class="text-block">
-            <div class="text-label">问题描述</div>
-            <div v-if="ledgerDetail.description" class="text-value rich-text">
-              <wk-desc-text :value="ledgerDetail.description" />
-            </div>
-            <div v-else class="text-value">—</div>
-          </div>
-          <div v-if="detailCompletedReply" class="text-block">
-            <div class="text-label">回复记录</div>
-            <div class="text-value">{{ detailCompletedReply }}</div>
-          </div>
-          <div v-if="detailClosedReason" class="text-block">
-            <div class="text-label">关闭原因</div>
-            <div class="text-value">{{ detailClosedReason }}</div>
-          </div>
-        </section>
-
-        <section v-show="recordList.length > 0" class="detail-section detail-section-records">
-          <div class="section-title">进度记录</div>
-          <ledger-record-timeline :records="recordList" variant="desktop" />
-        </section>
+          <section v-show="recordList.length > 0" class="detail-section detail-section-records">
+            <div class="section-title">进度记录</div>
+            <ledger-record-timeline :records="recordList" variant="desktop" />
+          </section>
         </div>
 
         <section v-if="ledgerDetail.status !== '已完成' && ledgerDetail.status !== '已关闭'" class="detail-section record-actions-section">
@@ -326,8 +326,8 @@
           <el-input
             v-model.trim="recordForm.content"
             :rows="4"
-            type="textarea"
             :placeholder="recordForm.new_status === '已关闭' ? '填写关闭原因' : '填写处理结果'"
+            type="textarea"
             class="record-input" />
           <div class="record-actions">
             <el-select v-model="recordForm.new_status" clearable placeholder="变更状态（可选）" class="record-select">
@@ -351,7 +351,7 @@ import CrmRelativeCell from '@/components/CreateCom/CrmRelativeCell'
 import WkDescText from '@/components/NewCom/WkDescText'
 import LedgerRecordTimeline from '@/views/crm/ledger/components/LedgerRecordTimeline'
 import ledgerMixin from '@/mixins/ledgerMixin'
-import { DEFAULT_CATEGORY_OPTIONS, DEFAULT_LEDGER_CATEGORY, LEDGER_CHANNEL_OPTIONS } from '@/utils/ledgerFormat'
+import { DEFAULT_CATEGORY_OPTIONS, DEFAULT_LEDGER_CATEGORY, LEDGER_CHANNEL_OPTIONS, LEDGER_STATUS_OPTIONS } from '@/utils/ledgerFormat'
 import { workIndexWorkListAPI } from '@/api/pm/task'
 import { workWorkStatisticAPI } from '@/api/pm/statistics'
 import { crmCustomerQueryContactsAPI } from '@/api/crm/customer'
@@ -397,7 +397,7 @@ export default {
       nopermission: false,
       list: [],
       tableHeight: '400px',
-      statusOptions: ['待处理', '处理中', '待验证', '待发布', '已完成', '已关闭'],
+      statusOptions: [...LEDGER_STATUS_OPTIONS],
       categoryOptions: [...DEFAULT_CATEGORY_OPTIONS],
       channelOptions: [...LEDGER_CHANNEL_OPTIONS],
       workOptions: [],

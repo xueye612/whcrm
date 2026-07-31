@@ -1,0 +1,27 @@
+-- =====================================================================
+-- 20260729_biz_category_simplify_rollback_notes.sql
+-- 回滚说明：如何撤销本迁移
+-- =====================================================================
+--
+-- 本迁移修改了 business_category 和 signing_method 字段值。
+-- 回滚前请备份原始数据。
+--
+-- 回滚无法完全恢复原始旧类别值（dealer_dev/hospital_direct/hospital_agent/outsource），
+-- 因为这些旧值已被统一映射为 direct/agent。
+-- 如需恢复，请从迁移前的数据库备份中恢复 crm_business 表。
+--
+-- 回滚步骤（仅恢复 signing_method 逻辑，不恢复旧类别字符串）：
+--
+-- 1. 恢复 signing_method 为空（如迁移前为空）：
+--    UPDATE `5kcrm_crm_business` SET `signing_method` = '' WHERE 1=1;
+--    （仅在迁移前 signing_method 全部为空时执行）
+--
+-- 2. 恢复 business_category 为旧值（需要备份对照表）：
+--    需要根据迁移前的备份逐一对照恢复。
+--
+-- 注意：
+-- - 不建议回滚本迁移，因为新代码仅使用 direct/agent 两类
+-- - 回滚后新代码可能无法正确显示旧类别
+-- - 默认商机状态组（crm_business_type）不受本迁移影响
+-- =====================================================================
+SELECT 'rollback notes for 20260729_biz_category_simplify' AS info;

@@ -209,12 +209,13 @@ class Business extends Common
         $list = db('crm_business')
             ->alias('business')
             ->join('__CRM_CUSTOMER__ customer', 'business.customer_id = customer.customer_id', 'LEFT')
+            ->join('__CRM_CUSTOMER__ dealer', 'business.dealer_customer_id = dealer.customer_id', 'LEFT')
             ->where($map)
             ->where($partMap)
             ->where($authMap)
             ->where($overdueWhere)
             ->limit($request['offset'], $request['length'])
-            ->field('business.*,customer.name as customer_name')
+            ->field('business.*,customer.name as customer_name,dealer.name as dealer_customer_name')
             ->orderRaw($order)
             ->select();
         $endStatus = ['1' => '赢单', '2' => '输单', '3' => '无效'];
@@ -290,8 +291,224 @@ class Business extends Common
      * @return
      * @author Michael_xu
      */
+    /** 业务类别 → 中文标签 */
+    public static function categoryLabel($v)
+    {
+        $m = [
+            'direct'=>'直签', 'agent'=>'代理',
+            'dealer_dev'=>'直签', 'hospital_direct'=>'直签',
+            'hospital_agent'=>'代理', 'outsource'=>'直签'
+        ];
+        return isset($m[$v]) ? $m[$v] : $v;
+    }
+
+    /** 签约方式 → 中文标签 */
+    public static function signingMethodLabel($v)
+    {
+        $m = ['company_direct'=>'公司直签','dealer_signed'=>'经销商签署'];
+        return isset($m[$v]) ? $m[$v] : $v;
+    }
+
+    /**
+     * 获取默认商机状态组 type_id
+     * 规则：优先读取配置的默认组，否则取启用且可见组中 type_id 最小的一组。
+     * 结果缓存，保证稳定不因排序变化。
+     */
+    public static function getDefaultTypeId()
+    {
+        static $cache = null;
+        if ($cache !== null) return $cache;
+        $configVal = db('crm_config')->where(['name' => 'default_business_type_id'])->value('value');
+        if ($configVal) {
+            $configId = (int)$configVal;
+            if ($configId > 0) {
+                $exists = db('crm_business_type')->where(['type_id' => $configId, 'is_display' => 1, 'status' => 1])->find();
+                if ($exists) { $cache = $configId; return $cache; }
+            }
+        }
+        $row = db('crm_business_type')
+            ->where(['is_display' => 1, 'status' => 1])
+            ->order('type_id asc')
+            ->find();
+        $cache = $row ? (int)$row['type_id'] : 0;
+        return $cache;
+    }
+
+    /**
+     * 获取默认状态组的第一个状态ID（用于新建商机的初始状态）
+     */
+    public static function getDefaultStatusId()
+    {
+        $typeId = self::getDefaultTypeId();
+        if (!$typeId) return 0;
+        $status = db('crm_business_status')
+            ->where(['type_id' => $typeId])
+            ->order('order_id asc')
+            ->find();
+        return $status ? (int)$status['status_id'] : 0;
+    }
+
+    /**
+     * 根据 business_category 获取对应状态组 type_id
+     * 优先从 crm_config 读取（迁移写入），其次按 business_category 查询。
+     * 找不到时返回 0。
+     */
+    public static function getTypeIdByCategory($category)
+    {
+        static $cache = [];
+        $category = trim((string)$category);
+        if ($category === '') return 0;
+        if (isset($cache[$category])) return $cache[$category];
+        // 优先从配置表读取
+        $configKey = $category === 'direct' ? 'business_type_id_direct' : ($category === 'agent' ? 'business_type_id_agent' : '');
+        if ($configKey) {
+            $configVal = db('crm_config')->where(['name' => $configKey])->value('value');
+            if ($configVal) {
+                $configId = (int)$configVal;
+                if ($configId > 0) {
+                    $exists = db('crm_business_type')->where(['type_id' => $configId, 'is_display' => 1, 'status' => 1])->find();
+                    if ($exists) { $cache[$category] = $configId; return $configId; }
+                }
+            }
+        }
+        // 回退：按 business_category 查询
+        $row = db('crm_business_type')
+            ->where(['business_category' => $category, 'is_display' => 1, 'status' => 1])
+            ->order('type_id asc')
+            ->find();
+        $cache[$category] = $row ? (int)$row['type_id'] : 0;
+        return $cache[$category];
+    }
+
+    /**
+     * 获取指定状态组的第一个阶段 status_id
+     */
+    public static function getFirstStatusId($typeId)
+    {
+        $typeId = (int)$typeId;
+        if (!$typeId) return 0;
+        $status = db('crm_business_status')
+            ->where(['type_id' => $typeId])
+            ->order('order_id asc')
+            ->find();
+        return $status ? (int)$status['status_id'] : 0;
+    }
+
+    /**
+     * 根据 dealer_customer_id 推导状态组 type_id
+     * 有代理商 -> 代理签约组, 无代理商 -> 直签组
+     * 找不到时返回 0，调用方必须处理错误。
+     */
+    public static function getTypeIdByDealer($dealerCustomerId)
+    {
+        $category = ((int)$dealerCustomerId) > 0 ? 'agent' : 'direct';
+        return self::getTypeIdByCategory($category);
+    }
+
+    /**
+     * 校验商机组是否对指定用户可用：
+     *   1) type_id 存在
+     *   2) is_display=1（可见）且 status=1（启用）
+     *   3) 用户部门在 structure_id 范围内（空 structure_id 表示不限部门）
+     * 退出终端（超级管理员）始终可用。
+     */
+    public function isTypeIdUsable($typeId, $userId)
+    {
+        $typeId = (int)$typeId;
+        if ($typeId <= 0) return false;
+        $type = db('crm_business_type')->where(['type_id' => $typeId])->find();
+        if (!$type) return false;
+        if ((int)$type['is_display'] !== 1 || (int)$type['status'] !== 1) return false;
+        $structureId = trim((string)($type['structure_id'] ?? ''));
+        if ($structureId === '' || $structureId === ',') return true; // 不限部门
+        if (isSuperAdministrators((int)$userId)) return true;
+        $userStructureId = (int)db('admin_user')->where('id', (int)$userId)->value('structure_id');
+        if ($userStructureId <= 0) return false;
+        return strpos(',' . trim($structureId, ',') . ',', ',' . $userStructureId . ',') !== false;
+    }
+
+    /**
+     * 商机只区分直签和代理，不再把业务类别绑定到状态组或客户类型。
+     * 未选择经销商即为直签；选择经销商即为代理。
+     * 代理商可以从所有 CRM 公司客户中选择，不再要求 customer_type=dealer。
+     */
+    public function validateBusinessCategoryRules($param)
+    {
+        $customerId = (int)($param['customer_id'] ?? 0);
+        if ($customerId > 0) {
+            $customer = db('crm_customer')->where(['customer_id' => $customerId])->field('customer_id,name')->find();
+            if (!$customer) {
+                $this->error = '相关客户不存在';
+                return false;
+            }
+        }
+
+        $dealerId = (int)($param['dealer_customer_id'] ?? 0);
+        if ($dealerId > 0) {
+            if ($dealerId === $customerId) {
+                $this->error = '客户不能选择自己作为签约代理商';
+                return false;
+            }
+            $dealer = db('crm_customer')->where(['customer_id' => $dealerId])->field('customer_id,name')->find();
+            if (!$dealer) {
+                $this->error = '所选签约代理商不存在';
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * 商机 read 返回 dealer_customer_name（中文标签 + 客户名）
+     */
+    public function enrichDealerName(&$row)
+    {
+        $dealerId = (int)($row['dealer_customer_id'] ?? 0);
+        if ($dealerId > 0) {
+            $dealer = db('crm_customer')->where(['customer_id' => $dealerId])->field('customer_id,name')->find();
+            $row['dealer_customer_name'] = $dealer ? $dealer['name'] : ('客户#' . $dealerId);
+        } else {
+            $row['dealer_customer_name'] = '';
+        }
+        return $row;
+    }
+
     public function createData($param)
     {
+        $param['dealer_customer_id'] = (int)($param['dealer_customer_id'] ?? 0);
+        $param['signing_method'] = $param['dealer_customer_id'] > 0 ? 'dealer_signed' : 'company_direct';
+        $param['business_category'] = $param['dealer_customer_id'] > 0 ? 'agent' : 'direct';
+        // 商机组 type_id：尊重用户选择；旧客户端未提交时按直签/代理配置回退默认组
+        $submittedTypeId = (int)($param['type_id'] ?? 0);
+        if ($submittedTypeId > 0) {
+            if (!$this->isTypeIdUsable($submittedTypeId, $param['create_user_id'])) {
+                $this->error = '所选商机组不存在、已停用或无权使用';
+                return false;
+            }
+            $param['type_id'] = $submittedTypeId;
+        } else {
+            $param['type_id'] = self::getTypeIdByDealer($param['dealer_customer_id']);
+            if (!$param['type_id']) {
+                $this->error = '商机状态组尚未配置，请先执行状态组迁移';
+                return false;
+            }
+        }
+        // status_id：校验必须属于所选 type_id；未提交时使用该组第一个阶段
+        $submittedStatusId = (int)($param['status_id'] ?? 0);
+        if ($submittedStatusId > 0) {
+            $stageRow = db('crm_business_status')->where(['status_id' => $submittedStatusId, 'type_id' => $param['type_id']])->find();
+            if (!$stageRow) {
+                $this->error = '所选阶段不属于所选商机组';
+                return false;
+            }
+            $param['status_id'] = $submittedStatusId;
+        } else {
+            $param['status_id'] = self::getFirstStatusId($param['type_id']);
+            if (!$param['status_id']) {
+                $this->error = '所选商机组尚未配置阶段';
+                return false;
+            }
+        }
         // 商机扩展表数据
         $businessData = [];
 
@@ -305,6 +522,10 @@ class Business extends Common
         }
         if (!$param['customer_id']) {
             $this->error = '请选择相关客户';
+            return false;
+        }
+        // 业务类别与状态组、客户类型、签约方式、经销商重复校验
+        if (!$this->validateBusinessCategoryRules($param)) {
             return false;
         }
 
@@ -448,6 +669,9 @@ class Business extends Common
      */
     public function updateDataById($param, $business_id = '')
     {
+        $param['dealer_customer_id'] = (int)($param['dealer_customer_id'] ?? 0);
+        $param['signing_method'] = $param['dealer_customer_id'] > 0 ? 'dealer_signed' : 'company_direct';
+        $param['business_category'] = $param['dealer_customer_id'] > 0 ? 'agent' : 'direct';
         // 商机扩展表数据
         $businessData = [];
 
@@ -471,6 +695,51 @@ class Business extends Common
         if (!empty($validateResult)) {
             $this->error = $validateResult;
             return false;
+        }
+
+        // 业务类别与状态组、客户类型、签约方式、经销商重复校验（update 同样校验）
+        if (!$this->validateBusinessCategoryRules($param)) {
+            return false;
+        }
+
+        // 商机组 type_id：不再由 dealer_customer_id 无条件覆盖。
+        // 仅当用户显式提交了不同的 type_id 时才允许切换，并按原阶段 order_id 映射新组阶段；
+        // 找不到对应阶段则拒绝修改，不得静默重置。
+        $oldTypeId = (int)($dataInfo['type_id'] ?? 0);
+        $submittedTypeId = (int)($param['type_id'] ?? 0);
+        if ($submittedTypeId > 0 && $submittedTypeId !== $oldTypeId) {
+            // 校验新商机组可用
+            if (!$this->isTypeIdUsable($submittedTypeId, $param['user_id'])) {
+                $this->error = '所选商机组不存在、已停用或无权使用';
+                return false;
+            }
+            // 按原阶段 order_id 映射新组阶段；终态阶段(1/2/3)为共享，保持不变
+            $oldStatusId = (int)($dataInfo['status_id'] ?? 0);
+            $newStatusId = 0;
+            if (!in_array($oldStatusId, [1, 2, 3], true)) {
+                $oldStatus = db('crm_business_status')->where(['status_id' => $oldStatusId])->find();
+                if ($oldStatus) {
+                    $newStatus = db('crm_business_status')
+                        ->where(['type_id' => $submittedTypeId, 'order_id' => $oldStatus['order_id']])
+                        ->find();
+                    if ($newStatus) {
+                        $newStatusId = (int)$newStatus['status_id'];
+                    }
+                }
+            } else {
+                $newStatusId = $oldStatusId;
+            }
+            if (!$newStatusId) {
+                $this->error = '所选商机组中找不到与当前阶段对应的阶段（order_id=' . ($oldStatus['order_id'] ?? 0) . '），无法切换商机组';
+                return false;
+            }
+            $param['type_id'] = $submittedTypeId;
+            $param['status_id'] = $newStatusId;
+        } else {
+            // 商机组未变：阶段不得通过普通编辑表单直接修改，必须走"推进商机"接口
+            // 保留原 type_id 和 status_id，忽略前端可能提交的 status_id
+            $param['type_id'] = $oldTypeId;
+            $param['status_id'] = (int)($dataInfo['status_id'] ?? 0);
         }
 
         # 商机金额小数处理
@@ -648,6 +917,11 @@ class Business extends Common
         $dataInfo['status_id_info'] = db('crm_business_status')->where(['status_id' => $dataInfo['status_id']])->value('name');
         $dataInfo['customer_id_info'] = db('crm_customer')->where(['customer_id' => $dataInfo['customer_id']])->field('customer_id,name')->find();
         $dataInfo['customer_name'] = !empty($dataInfo['customer_id_info']['name']) ? $dataInfo['customer_id_info']['name'] : '';
+        # 所属经销商名称（中文标签 + 客户名，不显示数字 ID）
+        $this->enrichDealerName($dataInfo);
+        # 业务类别与签约方式中文标签
+        $dataInfo['business_category_label'] = $this->categoryLabel($dataInfo['business_category'] ?? '');
+        $dataInfo['signing_method_label'] = $this->signingMethodLabel($dataInfo['signing_method'] ?? '');
         # 关注
         $starId = empty($userId) ? 0 : Db::name('crm_star')->where(['user_id' => $userId, 'target_id' => $id, 'type' => 'crm_business'])->value('star_id');
         $dataInfo['star'] = !empty($starId) ? 1 : 0;

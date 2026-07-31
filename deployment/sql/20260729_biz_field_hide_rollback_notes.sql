@@ -1,0 +1,14 @@
+-- =====================================================================
+-- 20260729_biz_field_hide_rollback_notes.sql
+-- 回滚说明：恢复字段可见性
+-- =====================================================================
+-- 
+-- 回滚步骤：
+-- UPDATE `5kcrm_admin_field`
+-- SET `is_display` = 1
+-- WHERE `types` = 'crm_business'
+--   AND `field` IN ('signing_method', 'business_category', 'dealer_customer_id', 'crm_rianjp');
+--
+-- 注意：恢复后新增/编辑页面将再次显示重复字段，不推荐回滚。
+-- =====================================================================
+SELECT 'rollback notes for 20260729_biz_field_hide' AS info;

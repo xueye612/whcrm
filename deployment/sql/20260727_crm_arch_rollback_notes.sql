@@ -1,0 +1,12 @@
+-- CRM arch rollback notes (manual only, ASCII only)
+-- Stop code -> backup -> then manually execute:
+-- 1. Recreate waste tables from original P2/P3 migration scripts (git history deployment/sql/20260727_p2_*.sql, p3_*.sql)
+-- 2. ALTER TABLE 5kcrm_crm_business DROP COLUMN business_category, DROP COLUMN signing_method, DROP COLUMN dealer_customer_id;
+-- 3. ALTER TABLE 5kcrm_reward_candidate DROP INDEX uk_source_type_ref;
+-- 4. ALTER TABLE 5kcrm_reward_candidate MODIFY COLUMN source_ref VARCHAR(100) NOT NULL DEFAULT '';
+-- 5. ALTER TABLE 5kcrm_reward_candidate DROP COLUMN occurred_time, DROP COLUMN business_id, DROP COLUMN contract_id, DROP COLUMN customer_id;
+-- 6. ALTER TABLE 5kcrm_finance_record DROP INDEX uk_recv_reltype;
+-- 7. ALTER TABLE 5kcrm_finance_record DROP COLUMN receivables_id, DROP COLUMN rel_type;
+-- 8. DROP TABLE IF EXISTS 5kcrm_customer_dealer_rel;
+-- 9. DELETE FROM 5kcrm_crm_business_type WHERE name IN ('dealer_dev','hospital_direct','hospital_agent','outsource');
+-- Do NOT delete: 5kcrm_reward_candidate rows, 5kcrm_finance_record rows, 5kcrm_crm_business rows.

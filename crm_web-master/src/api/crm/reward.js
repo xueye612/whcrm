@@ -2,6 +2,14 @@ import request from '@/utils/request'
 export function rewardDictionaryAPI(data) { return request({ url: 'crm/reward/dictionary', method: 'post', data }) }
 export function rewardCandidateSaveAPI(data) { return request({ url: 'crm/reward/candidateSave', method: 'post', data }) }
 export function rewardCandidateListAPI(data) { return request({ url: 'crm/reward/candidateList', method: 'post', data }) }
+export function rewardCandidateReadAPI(data) { return request({ url: 'crm/reward/candidateRead', method: 'post', data }) }
+export function rewardCandidateUpdateAPI(data) { return request({ url: 'crm/reward/candidateUpdate', method: 'post', data }) }
+export function rewardCandidateAuditListAPI(data) { return request({ url: 'crm/reward/candidateAuditList', method: 'post', data }) }
+export function rewardRuleListAPI(data) { return request({ url: 'crm/reward/ruleList', method: 'post', data }) }
+export function rewardRuleSaveAPI(data) { return request({ url: 'crm/reward/ruleSave', method: 'post', data }) }
+export function rewardRuleToggleAPI(data) { return request({ url: 'crm/reward/ruleToggle', method: 'post', data }) }
+export function rewardRuleDeleteAPI(data) { return request({ url: 'crm/reward/ruleDelete', method: 'post', data }) }
+export function rewardBusinessTypeStageListAPI(data) { return request({ url: 'crm/reward/businessTypeStageList', method: 'post', data }) }
 export function rewardReviewAPI(data) { return request({ url: 'crm/reward/review', method: 'post', data }) }
 export function rewardBatchCreateAPI(data) { return request({ url: 'crm/reward/batchCreate', method: 'post', data }) }
 export function rewardBatchSettleAPI(data) { return request({ url: 'crm/reward/batchSettle', method: 'post', data }) }
@@ -9,3 +17,6 @@ export function rewardOffsetAPI(data) { return request({ url: 'crm/reward/offset
 export function rewardConfigSaveAPI(data) { return request({ url: 'crm/reward/configSave', method: 'post', data }) }
 export function rewardExpenseSaveAPI(data) { return request({ url: 'crm/reward/expenseSave', method: 'post', data }) }
 export function rewardExpenseListAPI(data) { return request({ url: 'crm/reward/expenseList', method: 'post', data }) }
+export function rewardManualRuleListAPI(data) { return request({ url: 'crm/reward/manualRuleList', method: 'post', data }) }
+export function rewardManualRuleSaveAPI(data) { return request({ url: 'crm/reward/manualRuleSave', method: 'post', data }) }
+export function rewardManualRuleDeleteAPI(data) { return request({ url: 'crm/reward/manualRuleDelete', method: 'post', data }) }

@@ -11,3 +11,12 @@ crm_web-master/dist/
 crm_web-master/dev-server.log
 crm_web-master/dev-server.err.log
 *.log
+
+# 本地工具配置与临时产物，不入库
+.kilo/
+*.zip
+
+# 调试/验收截图与本地备份
+screenshot_*.png
+crm_php-master/sql/local_backup_*.sql
+crm_web-master/tests/playwright_screenshots/

@@ -2,8 +2,8 @@
   <div v-if="visible" class="project-implementation-panel">
     <el-alert
       v-if="!detail.can_manage"
-      type="info"
       :closable="false"
+      type="info"
       title="你无该项目管理权限，仅可查看实施信息"
       show-icon/>
     <el-tabs v-model="activeTab" class="imp-tabs">
@@ -38,13 +38,13 @@
             <el-col :span="6"><el-form-item label="实际结束"><el-date-picker v-model="profileForm.actual_end_time" :disabled="!canManage" type="date" value-format="yyyy-MM-dd" style="width:100%"/></el-form-item></el-col>
           </el-row>
           <el-form-item label="风险/责任归因">
-            <el-input v-model="profileForm.risk_note" :disabled="!canManage" type="textarea" :rows="2" maxlength="500"/>
+            <el-input v-model="profileForm.risk_note" :disabled="!canManage" :rows="2" type="textarea" maxlength="500"/>
           </el-form-item>
           <el-form-item label="验收结果">
-            <el-select v-model="profileForm.acceptance_result" :disabled="!canManage || !detail.can_accept" clearable :placeholder="detail.can_accept ? '选择验收结果三档' : '需先完成至少一条里程碑'" style="width:280px">
+            <el-select v-model="profileForm.acceptance_result" :disabled="!canManage || !detail.can_accept" :placeholder="detail.can_accept ? '选择验收结果三档' : '需先完成至少一条里程碑'" clearable style="width:280px">
               <el-option v-for="a in dict.acceptance_result" :key="a" :label="a" :value="a"/>
             </el-select>
-            <el-button v-if="canManage" type="primary" :loading="acting" @click="saveProfile" style="margin-left:12px">保存档案</el-button>
+            <el-button v-if="canManage" :loading="acting" type="primary" style="margin-left:12px" @click="saveProfile">保存档案</el-button>
           </el-form-item>
         </el-form>
       </el-tab-pane>
@@ -60,7 +60,7 @@
           <el-table-column label="计划时间" width="120"><template slot-scope="s">{{ s.row.plan_time | fmtDate }}</template></el-table-column>
           <el-table-column label="实际时间" width="120"><template slot-scope="s">{{ s.row.actual_time | fmtDate }}</template></el-table-column>
           <el-table-column label="状态" width="100"><template slot-scope="s"><el-tag :type="msTag(s.row.status)" size="mini">{{ s.row.status }}</el-tag></template></el-table-column>
-          <el-table-column label="操作" width="140" v-if="canManage">
+          <el-table-column v-if="canManage" label="操作" width="140">
             <template slot-scope="s">
               <el-button type="text" @click="openMilestone(s.row)">编辑</el-button>
               <el-button type="text" style="color:#f56c6c" @click="delMilestone(s.row)">删除</el-button>
@@ -80,7 +80,7 @@
           <el-table-column label="现场人日" prop="on_site_days" width="100"/>
           <el-table-column label="起止" width="220"><template slot-scope="s">{{ s.row.start_time | fmtDate }} ~ {{ s.row.end_time | fmtDate }}</template></el-table-column>
           <el-table-column label="证据/说明" prop="evidence_note"/>
-          <el-table-column label="操作" width="140" v-if="canManage">
+          <el-table-column v-if="canManage" label="操作" width="140">
             <template slot-scope="s">
               <el-button type="text" @click="openContribution(s.row)">编辑</el-button>
               <el-button type="text" style="color:#f56c6c" @click="delContribution(s.row)">删除</el-button>
@@ -98,8 +98,8 @@
           <el-table-column label="类型" prop="link_type" width="110"/>
           <el-table-column label="标题" prop="title"/>
           <el-table-column label="地址"><template slot-scope="s"><a v-if="s.row.url" :href="s.row.url" target="_blank" rel="noopener">{{ s.row.url }}</a></template></el-table-column>
-          <el-table-column label="完整性" width="100"><template slot-scope="s"><el-tag size="mini" :type="compTag(s.row.completeness_status)">{{ s.row.completeness_status }}</el-tag></template></el-table-column>
-          <el-table-column label="操作" width="140" v-if="canManage">
+          <el-table-column label="完整性" width="100"><template slot-scope="s"><el-tag :type="compTag(s.row.completeness_status)" size="mini">{{ s.row.completeness_status }}</el-tag></template></el-table-column>
+          <el-table-column v-if="canManage" label="操作" width="140">
             <template slot-scope="s">
               <el-button type="text" @click="openKnowledge(s.row)">编辑</el-button>
               <el-button type="text" style="color:#f56c6c" @click="delKnowledge(s.row)">删除</el-button>
@@ -118,9 +118,9 @@
         <el-form-item label="实际时间"><el-date-picker v-model="milestoneForm.actual_time" type="date" value-format="yyyy-MM-dd" style="width:100%"/></el-form-item>
         <el-form-item label="状态"><el-select v-model="milestoneForm.status" style="width:100%"><el-option v-for="s in dict.milestone_status" :key="s" :label="s" :value="s"/></el-select></el-form-item>
         <el-form-item label="排序"><el-input-number v-model="milestoneForm.sort" :min="0" controls-position="right"/></el-form-item>
-        <el-form-item label="证据/说明"><el-input v-model="milestoneForm.evidence_note" type="textarea" :rows="2"/></el-form-item>
+        <el-form-item label="证据/说明"><el-input v-model="milestoneForm.evidence_note" :rows="2" type="textarea"/></el-form-item>
       </el-form>
-      <span slot="footer"><el-button @click="msDialog=false">取消</el-button><el-button type="primary" :loading="acting" @click="saveMilestone">保存</el-button></span>
+      <span slot="footer"><el-button @click="msDialog=false">取消</el-button><el-button :loading="acting" type="primary" @click="saveMilestone">保存</el-button></span>
     </el-dialog>
 
     <!-- 贡献弹窗 -->
@@ -135,9 +135,9 @@
         <el-form-item label="现场人日"><el-input-number v-model="contributionForm.on_site_days" :min="0" :step="0.5" controls-position="right"/></el-form-item>
         <el-form-item label="开始"><el-date-picker v-model="contributionForm.start_time" type="date" value-format="yyyy-MM-dd" style="width:100%"/></el-form-item>
         <el-form-item label="结束"><el-date-picker v-model="contributionForm.end_time" type="date" value-format="yyyy-MM-dd" style="width:100%"/></el-form-item>
-        <el-form-item label="证据/说明"><el-input v-model="contributionForm.evidence_note" type="textarea" :rows="2"/></el-form-item>
+        <el-form-item label="证据/说明"><el-input v-model="contributionForm.evidence_note" :rows="2" type="textarea"/></el-form-item>
       </el-form>
-      <span slot="footer"><el-button @click="ctDialog=false">取消</el-button><el-button type="primary" :loading="acting" @click="saveContribution">保存</el-button></span>
+      <span slot="footer"><el-button @click="ctDialog=false">取消</el-button><el-button :loading="acting" type="primary" @click="saveContribution">保存</el-button></span>
     </el-dialog>
 
     <!-- 知识链接弹窗 -->
@@ -150,7 +150,7 @@
         <el-form-item label="完整性"><el-select v-model="knowledgeForm.completeness_status" style="width:100%"><el-option v-for="c in dict.completeness" :key="c" :label="c" :value="c"/></el-select></el-form-item>
         <el-form-item label="排序"><el-input-number v-model="knowledgeForm.sort" :min="0" controls-position="right"/></el-form-item>
       </el-form>
-      <span slot="footer"><el-button @click="klDialog=false">取消</el-button><el-button type="primary" :loading="acting" @click="saveKnowledge">保存</el-button></span>
+      <span slot="footer"><el-button @click="klDialog=false">取消</el-button><el-button :loading="acting" type="primary" @click="saveKnowledge">保存</el-button></span>
     </el-dialog>
   </div>
 </template>
@@ -175,6 +175,15 @@ const EMPTY_DICT = {
 
 export default {
   name: 'ProjectImplementationPanel',
+  filters: {
+    fmtDate(v) {
+      if (!v) return ''
+      const dt = new Date(Number(v) * 1000)
+      const m = String(dt.getMonth() + 1).padStart(2, '0')
+      const d = String(dt.getDate()).padStart(2, '0')
+      return dt.getFullYear() + '-' + m + '-' + d
+    }
+  },
   props: {
     workId: [Number, String]
   },
@@ -274,7 +283,7 @@ export default {
       try {
         await milestoneSaveAPI(Object.assign({ work_id: Number(this.workId) }, this.milestoneForm))
         this.msDialog = false; this.$message.success('已保存'); this.fetch(); this.$emit('refresh')
-      } catch (e) {} finally { this.acting = false }
+      } catch (e) { /* 忽略：错误已由全局拦截器提示 */ } finally { this.acting = false }
     },
     delMilestone(row) {
       this.$confirm('确认删除该里程碑？', '提示', { type: 'warning' }).then(async() => {
@@ -294,7 +303,7 @@ export default {
       try {
         await contributionSaveAPI(Object.assign({ work_id: Number(this.workId) }, this.contributionForm))
         this.ctDialog = false; this.$message.success('已保存'); this.fetch()
-      } catch (e) {} finally { this.acting = false }
+      } catch (e) { /* 忽略：错误已由全局拦截器提示 */ } finally { this.acting = false }
     },
     delContribution(row) {
       this.$confirm('确认删除该贡献记录？', '提示', { type: 'warning' }).then(async() => {
@@ -311,22 +320,13 @@ export default {
       try {
         await knowledgeSaveAPI(Object.assign({ work_id: Number(this.workId) }, this.knowledgeForm))
         this.klDialog = false; this.$message.success('已保存'); this.fetch()
-      } catch (e) {} finally { this.acting = false }
+      } catch (e) { /* 忽略：错误已由全局拦截器提示 */ } finally { this.acting = false }
     },
     delKnowledge(row) {
       this.$confirm('确认删除该知识链接？', '提示', { type: 'warning' }).then(async() => {
         await knowledgeDeleteAPI({ work_id: Number(this.workId), link_id: row.link_id })
         this.$message.success('已删除'); this.fetch()
       }).catch(() => {})
-    }
-  },
-  filters: {
-    fmtDate(v) {
-      if (!v) return ''
-      const dt = new Date(Number(v) * 1000)
-      const m = String(dt.getMonth() + 1).padStart(2, '0')
-      const d = String(dt.getDate()).padStart(2, '0')
-      return dt.getFullYear() + '-' + m + '-' + d
     }
   }
 }

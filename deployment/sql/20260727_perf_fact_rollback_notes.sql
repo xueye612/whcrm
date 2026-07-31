@@ -1,0 +1,4 @@
+-- perf_fact rollback (manual only, ASCII)
+-- Stop code -> backup -> then manually:
+--   DROP TABLE IF EXISTS 5kcrm_performance_fact;
+-- Do NOT delete: 5kcrm_performance rows, 5kcrm_responsibility_case rows, or any business data.

@@ -56,7 +56,22 @@
           sortable="custom"
           show-overflow-tooltip>
           <template slot-scope="{ row, column, $index }">
+            <div
+              v-if="item.prop === 'name'"
+              class="business-name-cell">
+              <el-tooltip
+                :content="signingTooltip(row)"
+                effect="dark"
+                placement="top">
+                <i
+                  :class="isAgentSigning(row) ? 'wk wk-customer-solid' : 'wk wk-contract'"
+                  :style="{ color: isAgentSigning(row) ? '#F59A23' : '#00A870' }"
+                  class="business-signing-icon" />
+              </el-tooltip>
+              <span class="business-name-text">{{ fieldFormatter(row, column, row[column.property], item) }}</span>
+            </div>
             <wk-field-view
+              v-else
               :props="item"
               :form_type="item.form_type"
               :value="row[column.property]"
@@ -181,6 +196,14 @@ export default {
   },
   mounted() {},
   methods: {
+    isAgentSigning(row) {
+      return Number(row && row.dealer_customer_id) > 0
+    },
+    signingTooltip(row) {
+      return this.isAgentSigning(row)
+        ? '代理签约：' + (row.dealer_customer_name || '未获取代理商名称')
+        : '直签'
+    },
 
     /**
      * 通过回调控制class
@@ -214,4 +237,23 @@ export default {
 
 <style lang="scss" scoped>
 @import '../styles/table.scss';
+
+.business-name-cell {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.business-signing-icon {
+  margin-right: 5px;
+  font-size: 14px;
+  cursor: default;
+  flex-shrink: 0;
+}
+
+.business-name-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 </style>

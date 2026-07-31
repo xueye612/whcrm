@@ -1,0 +1,19 @@
+-- ============================================================
+-- 最终收口 schema rollback_notes
+-- 回滚路径（人工执行，不自动 DROP 业务数据）：
+-- 1) 删除新增列（仅当业务允许）：
+--    ALTER TABLE `5kcrm_performance` DROP COLUMN `reference_amount`;
+--    ALTER TABLE `5kcrm_performance` DROP COLUMN `quarterly_base`;
+--    ALTER TABLE `5kcrm_responsibility_case` DROP COLUMN `review_note`;
+--    ALTER TABLE `5kcrm_responsibility_case` DROP COLUMN `review_time`;
+--    ALTER TABLE `5kcrm_responsibility_case` DROP COLUMN `reviewer_user_id`;
+--    ALTER TABLE `5kcrm_responsibility_case` DROP COLUMN `evidence`;
+--    ALTER TABLE `5kcrm_reward_candidate` DROP COLUMN `settle_time`;
+-- 2) 删除新增表（仅当无业务数据时）：
+--    DROP TABLE IF EXISTS `5kcrm_performance_adjust_audit`;
+--    DROP TABLE IF EXISTS `5kcrm_ledger_quality_issue`;
+-- 3) responsibility_case.status 默认值恢复为原值（如非'认定中'）。
+-- 4) 已写入的 performance_fact 中责任认定/台账质量问题事实为业务数据，
+--    回滚前应导出审计；不得直接 DELETE。
+-- ============================================================
+SELECT 'rollback_notes_final_close_schema' AS note;

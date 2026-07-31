@@ -108,6 +108,20 @@ export function crmBusinessAdvanceAPI(data) {
 }
 
 /**
+ * 商机阶段回退（受控，仅管理员）
+ */
+export function crmBusinessStageRollbackAPI(data) {
+  return request({
+    url: 'crm/business/stageRollback',
+    method: 'post',
+    data: data,
+    headers: {
+      'Content-Type': 'application/json;charset=UTF-8'
+    }
+  })
+}
+
+/**
  * 商机相关产品
  * @param {*} data
  */

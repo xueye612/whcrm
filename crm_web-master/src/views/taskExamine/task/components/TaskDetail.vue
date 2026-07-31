@@ -310,7 +310,8 @@
                   <div
                     v-if="taskData.description"
                     class="description-content"
-                    @click="editTaskDescription">{{ taskData.description }}</div>
+                    v-html="safeDescription"
+                    @click="editTaskDescription"></div>
                   <div
                     v-else
                     class="description-empty">
@@ -325,13 +326,7 @@
                   </div>
                 </div>
                 <div v-show="addDescriptionShow">
-                  <el-input
-                    :autosize="{ minRows: 2}"
-                    v-model="addDescriptionTextarea"
-                    :maxlength="2000"
-                    show-word-limit
-                    type="textarea"
-                    placeholder="请输入内容" />
+                  <tinymce v-model="addDescriptionTextarea" :height="200" />
                   <div class="btn-box">
                     <el-button
                       type="primary"
@@ -586,6 +581,7 @@ import {
   workTaskDeleteAPI,
   workSubTaskDeleteAPI
 } from '@/api/pm/projectTask'
+import { setStartTimeAPI } from '@/api/task/workflow'
 // 项目参与人
 import { workWorkOwnerListAPI } from '@/api/pm/project'
 import {
@@ -610,6 +606,7 @@ import moment from 'moment'
 import { objDeepCopy } from '@/utils'
 import TaskMixin from '../mixins/TaskMixin'
 import TaskWorkflowPanel from './TaskWorkflowPanel'
+import Tinymce from '@/components/Tinymce'
 
 export default {
   name: 'TaskDetail',
@@ -626,7 +623,8 @@ export default {
     XhUserCell,
     CommentList,
     ReplyComment,
-    TaskWorkflowPanel
+    TaskWorkflowPanel,
+    Tinymce
   },
   mixins: [TaskMixin],
   props: {
@@ -762,6 +760,10 @@ export default {
         return null
       }
       return this.taskData.lable_list || []
+    },
+
+    safeDescription() {
+      return this.taskData && this.taskData.description ? xss(this.taskData.description) : ''
     }
   },
   watch: {
@@ -1279,26 +1281,64 @@ export default {
      * 截至日期API
      */
     deleteTime(type) {
-      this.taskData[type] = ''
-      this.timeChange(type)
+      if (type === 'start_time') {
+        this.setStartTime('')
+      } else {
+        this.taskData[type] = ''
+        this.timeChange(type)
+      }
     },
 
     timeChange(type) {
-      const params = { task_id: this.id, type, work_id: this.workId }
-      params[type] = this.taskData[type]
-      workTaskTimeSetAPI(params)
+      if (type === 'start_time') {
+        this.setStartTime(this.taskData[type])
+      } else {
+        const params = { task_id: this.id, type, work_id: this.workId }
+        params[type] = this.taskData[type]
+        workTaskTimeSetAPI(params)
+          .then(res => {
+            if (type == 'stop_time') {
+              this.$emit('on-handle', {
+                type: 'change-stop-time',
+                value: this.taskData[type],
+                index: this.detailIndex,
+                section: this.detailSection
+              })
+            }
+          })
+          .catch(() => {})
+      }
+    },
+
+    /**
+     * 设置/删除开始时间（与工作流状态双向关联）
+     */
+    setStartTime(val) {
+      const params = { task_id: this.id, start_time: val || '' }
+      // 传入当前工作流版本号
+      params.version = (this.$refs && this.$refs.taskWorkflowPanel && this.$refs.taskWorkflowPanel.data && this.$refs.taskWorkflowPanel.data.version) || 0
+      setStartTimeAPI(params)
         .then(res => {
-          // 停止时间回调
-          if (type == 'stop_time') {
-            this.$emit('on-handle', {
-              type: 'change-stop-time',
-              value: this.taskData[type],
-              index: this.detailIndex,
-              section: this.detailSection
-            })
+          const data = res.data || res
+          if (data.start_time !== undefined) {
+            this.$set(this.taskData, 'start_time', data.start_time ? this.formatStartTime(data.start_time) : '')
           }
+          this.$message.success(val ? '开始时间已更新' : '开始时间已删除')
+          // 刷新工作流面板和详情
+          this.$emit('on-handle', {
+            type: 'change-start-time',
+            value: val,
+            index: this.detailIndex,
+            section: this.detailSection
+          })
         })
         .catch(() => {})
+    },
+
+    formatStartTime(ts) {
+      if (!ts) return ''
+      var d = new Date(Number(ts) * 1000)
+      return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0')
     },
 
     /**

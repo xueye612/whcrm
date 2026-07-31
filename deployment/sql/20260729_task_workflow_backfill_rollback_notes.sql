@@ -1,0 +1,20 @@
+-- =====================================================================
+-- 20260729_task_workflow_backfill_rollback_notes.sql
+-- 回滚说明
+-- =====================================================================
+--
+-- 回滚步骤：
+-- 仅删除由本迁移创建的 workflow 行（通过 create_time 区分）：
+--
+-- DELETE FROM `5kcrm_task_workflow`
+-- WHERE main_status IN ('待评估', '处理中', '已完成')
+--   AND init_w IS NULL
+--   AND final_w IS NULL
+--   AND create_time >= UNIX_TIMESTAMP('2026-07-29 00:00:00');
+--
+-- 注意：
+-- - 不要删除已有 W/R/K 数据的 workflow 行
+-- - 已完成任务不会被重置为待评估（本迁移已确保）
+-- - 回滚后历史任务将再次变为 legacy 状态
+-- =====================================================================
+SELECT 'rollback notes for 20260729_task_workflow_backfill' AS info;

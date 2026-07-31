@@ -26,7 +26,7 @@ class Ledger extends ApiCommon
         $this->ledgerLogic = new LedgerLogic();
         $action = [
             'permission' => [],
-            'allow' => ['excelexport']
+            'allow' => ['excelexport', 'converttotask', 'qualitycheck', 'statistics']
         ];
         Hook::listen('check_auth', $action);
         $request = Request::instance();
@@ -100,7 +100,7 @@ class Ledger extends ApiCommon
         $this->normalizeProjectFields($param);
 
         $allowedCategory = $this->ledgerLogic->getAllowedCategories();
-        $allowedStatus = ['待处理', '处理中', '待验证', '待发布', '已完成', '已关闭'];
+        $allowedStatus = ['待处理', '处理中', '待发布', '已完成', '已关闭'];
         if (!empty($param['category']) && !in_array($param['category'], $allowedCategory)) {
             return resultArray(['error' => '问题分类不合法']);
         }
@@ -209,7 +209,7 @@ class Ledger extends ApiCommon
             return resultArray(['error' => '无权限']);
         }
         $allowedCategory = $this->ledgerLogic->getAllowedCategories();
-        $allowedStatus = ['待处理', '处理中', '待验证', '待发布', '已完成', '已关闭'];
+        $allowedStatus = ['待处理', '处理中', '待发布', '已完成', '已关闭'];
         if (!empty($param['category']) && !in_array($param['category'], $allowedCategory)) {
             return resultArray(['error' => '问题分类不合法']);
         }
@@ -591,10 +591,7 @@ class Ledger extends ApiCommon
         if ($category === '') {
             return false;
         }
-        if (stripos($category, 'bug') !== false) {
-            return true;
-        }
-        return in_array($category, ['系统BUG', '新增需求', '新需求'], true);
+        return in_array($category, ['系统BUG', '新增需求'], true);
     }
 
     protected function maybeCreateProjectTask($ledgerId, array $param, $userInfo)
@@ -912,10 +909,10 @@ class Ledger extends ApiCommon
         if ($category === '') {
             return 0;
         }
-        if ($category === '系统BUG' || stripos($category, 'bug') !== false) {
+        if ($category === '系统BUG') {
             return 3;
         }
-        if (in_array($category, ['新增需求', '新需求'], true)) {
+        if ($category === '新增需求') {
             return 2;
         }
         return 0;
@@ -1005,5 +1002,381 @@ class Ledger extends ApiCommon
             return ' ' . $attr . '="' . htmlspecialchars($value, ENT_QUOTES, 'UTF-8') . '"';
         }, $content);
         return $content;
+    }
+
+    /**
+     * Manual conversion of non-auto ledger to task.
+     * Requires reason, project, owner, deadline.
+     */
+    public function convertToTask()
+    {
+        $param = $this->param;
+        $userInfo = $this->userInfo;
+        $ledgerId = (int)($param['ledger_id'] ?? 0);
+        if ($ledgerId <= 0) return resultArray(['error' => '缺少台账ID']);
+        $reason = trim((string)($param['reason'] ?? ''));
+        $workId = (int)($param['work_id'] ?? 0);
+        $classId = (int)($param['class_id'] ?? 0);
+        $mainUserId = (int)($param['main_user_id'] ?? 0);
+        $stopTime = (string)($param['stop_time'] ?? '');
+        if ($reason === '' || $workId <= 0 || $classId <= 0 || $mainUserId <= 0 || $stopTime === '') {
+            return resultArray(['error' => '请填写完整信息：转换原因、项目、任务分类、负责人、截止时间']);
+        }
+
+        // 校验任务分类属于所选项目
+        $classExists = Db::name('work_task_class')->where(['class_id' => $classId, 'work_id' => $workId])->find();
+        if (!$classExists) return resultArray(['error' => '任务分类不属于所选项目']);
+
+        // 校验负责人属于所选项目成员
+        $isMember = Db::name('work_user')->where(['work_id' => $workId, 'user_id' => $mainUserId])->find();
+        if (!$isMember) return resultArray(['error' => '负责人必须是所选项目的成员']);
+
+        $ledger = Db::name('customer_ledger')->where(['ledger_id' => $ledgerId])->find();
+        if (!$ledger) return resultArray(['error' => '台账不存在']);
+
+        // 幂等：已有 task_id 不重复转换
+        if ((int)($ledger['task_id'] ?? 0) > 0) {
+            return resultArray(['data' => ['task_id' => (int)$ledger['task_id'], 'note' => '该台账已转换过任务']]);
+        }
+
+        // 行锁防止并发转换
+        Db::startTrans();
+        try {
+            $lockedLedger = Db::name('customer_ledger')->where(['ledger_id' => $ledgerId])->lock(true)->find();
+            if ((int)($lockedLedger['task_id'] ?? 0) > 0) {
+                Db::rollback();
+                return resultArray(['data' => ['task_id' => (int)$lockedLedger['task_id'], 'note' => '该台账已被并发转换']]);
+            }
+
+            $now = time();
+            $taskParam = [
+                'name' => mb_substr('台账转任务：' . $ledger['title'], 0, 100),
+                'description' => '来源台账ID：' . $ledgerId . "\n转换原因：" . $reason,
+                'work_id' => $workId,
+                'class_id' => $classId,
+                'main_user_id' => $mainUserId,
+                'stop_time' => $stopTime,
+                'pid' => 0,
+                'create_user_id' => (int)$userInfo['id'],
+                'create_user_name' => $userInfo['realname'] ?? '',
+            ];
+            $taskModel = new \app\work\model\Task();
+            $taskRes = $taskModel->createTask($taskParam);
+            if (!$taskRes) {
+                throw new \Exception($taskModel->getError() ?: '创建任务失败');
+            }
+            $taskId = is_array($taskRes) ? (int)($taskRes['task_id'] ?? 0) : (int)$taskRes;
+
+            // 初始化工作流
+            \app\work\logic\WorkflowService::getWorkflow($taskId, true);
+
+            // 双向关联：回写 task_id 到台账
+            Db::name('customer_ledger')->where(['ledger_id' => $ledgerId])->update([
+                'task_id' => $taskId, 'auto_task_key' => 'ledger:' . $ledgerId . ':manual',
+                'update_time' => $now,
+            ]);
+            Db::commit();
+            return resultArray(['data' => ['task_id' => $taskId, 'ledger_id' => $ledgerId]]);
+        } catch (\Exception $e) {
+            Db::rollback();
+            return resultArray(['error' => '转换失败：' . $e->getMessage()]);
+        }
+    }
+
+    /**
+     * 数据质量检查：后台数据诊断工具，仅诊断不自动修改数据。
+     * 仅管理员或有台账管理权限的人员可使用。
+     * 检查内容：task_id 指向不存在的任务、同一客户下疑似重复台账、台账描述为空、
+     * 已完成但没有完成时间、完成时间早于登记时间。
+     */
+    public function qualityCheck()
+    {
+        $userInfo = $this->userInfo;
+        $userId = (int)$userInfo['id'];
+
+        // 权限校验：仅管理员或有台账管理权限的人员可使用
+        $isSuperAdmin = isSuperAdministrators($userId);
+        if (!$isSuperAdmin) {
+            if (!checkPerByAction('ledger', 'ledger', 'update')) {
+                return resultArray(['error' => '无权使用数据质量检查，仅管理员或台账管理权限可操作']);
+            }
+        }
+
+        $issues = [];
+        $model = model('CustomerLedger');
+
+        // 1. task_id 指向不存在的任务
+        try {
+            $invalidTaskQuery = Db::name('customer_ledger')->alias('l')
+                ->join('__TASK__ t', 'l.task_id = t.task_id', 'LEFT');
+            $invalidTaskQuery = $model->applyDataScopePublic($invalidTaskQuery, $userId, 'l');
+            $invalidTask = $invalidTaskQuery->where('l.task_id', '>', 0)
+                ->where('t.task_id IS NULL')
+                ->field('l.ledger_id, l.title, l.task_id')
+                ->limit(50)->select();
+            foreach ($invalidTask as $row) {
+                $issues[] = [
+                    'type' => '无效任务关联',
+                    'ledger_id' => $row['ledger_id'],
+                    'title' => $row['title'] ?: '-',
+                    'detail' => '台账关联的 task_id=' . $row['task_id'] . ' 指向的任务不存在',
+                    'suggestion' => '检查任务是否被删除，或清除台账的任务关联'
+                ];
+            }
+        } catch (\Exception $e) {
+            \think\Log::record('数据质量检查-无效任务关联查询失败: ' . $e->getMessage(), 'error');
+            return resultArray(['error' => '数据质量检查失败，请查看系统日志或联系管理员']);
+        }
+
+        // 2. 同一客户下疑似重复台账（标题相同且客户相同）
+        try {
+            $dupQuery = Db::name('customer_ledger')->alias('l');
+            $dupQuery = $model->applyDataScopePublic($dupQuery, $userId, 'l');
+            $dups = $dupQuery->where('l.title', '<>', '')
+                ->where('l.customer_id', '>', 0)
+                ->field('l.title, l.customer_id, COUNT(*) as cnt')
+                ->group('l.title, l.customer_id')
+                ->having('cnt > 1')
+                ->order('cnt desc')
+                ->limit(20)->select();
+            foreach ($dups as $dup) {
+                $customerName = (string)db('crm_customer')->where('customer_id', $dup['customer_id'])->value('name');
+                // 查询该重复组下的实际台账ID
+                $dupIdsQuery = Db::name('customer_ledger')->alias('l');
+                $dupIdsQuery = $model->applyDataScopePublic($dupIdsQuery, $userId, 'l');
+                $dupIds = $dupIdsQuery->where('l.title', $dup['title'])
+                    ->where('l.customer_id', $dup['customer_id'])
+                    ->column('l.ledger_id');
+                $repId = !empty($dupIds) ? (int)$dupIds[0] : 0;
+                $issues[] = [
+                    'type' => '疑似重复台账',
+                    'ledger_id' => $repId,
+                    'ledger_ids' => $dupIds,
+                    'title' => $dup['title'],
+                    'detail' => '客户「' . $customerName . '」下存在 ' . $dup['cnt'] . ' 条标题相同的台账（ID: ' . implode(', ', $dupIds) . '）',
+                    'suggestion' => '确认是否为重复登记，如是请合并或删除多余的台账'
+                ];
+            }
+        } catch (\Exception $e) {
+            \think\Log::record('数据质量检查-重复台账查询失败: ' . $e->getMessage(), 'error');
+            return resultArray(['error' => '数据质量检查失败，请查看系统日志或联系管理员']);
+        }
+
+        // 3. 台账描述为空
+        try {
+            $noDescQuery = Db::name('customer_ledger')->alias('l');
+            $noDescQuery = $model->applyDataScopePublic($noDescQuery, $userId, 'l');
+            $noDesc = $noDescQuery->where(function ($q) {
+                $q->whereOr('l.description', '')->whereOr('l.description IS NULL');
+            })->field('l.ledger_id, l.title')->limit(20)->select();
+            foreach ($noDesc as $row) {
+                $issues[] = [
+                    'type' => '描述为空',
+                    'ledger_id' => $row['ledger_id'],
+                    'title' => $row['title'] ?: '-',
+                    'detail' => '台账没有填写问题描述',
+                    'suggestion' => '补充问题描述，便于后续处理'
+                ];
+            }
+        } catch (\Exception $e) {
+            \think\Log::record('数据质量检查-描述为空查询失败: ' . $e->getMessage(), 'error');
+            return resultArray(['error' => '数据质量检查失败，请查看系统日志或联系管理员']);
+        }
+
+        // 4. 已完成但没有完成时间
+        try {
+            $noTimeQuery = Db::name('customer_ledger')->alias('l');
+            $noTimeQuery = $model->applyDataScopePublic($noTimeQuery, $userId, 'l');
+            $noTime = $noTimeQuery->where('l.status', '已完成')
+                ->where(function ($q) {
+                    $q->where('l.finish_time', 0)->whereOr('l.finish_time IS NULL');
+                })
+                ->field('l.ledger_id, l.title')->limit(20)->select();
+            foreach ($noTime as $row) {
+                $issues[] = [
+                    'type' => '已完成无完成时间',
+                    'ledger_id' => $row['ledger_id'],
+                    'title' => $row['title'] ?: '-',
+                    'detail' => '台账状态为已完成，但未记录完成时间',
+                    'suggestion' => '补充完成时间，确保数据完整'
+                ];
+            }
+        } catch (\Exception $e) {
+            \think\Log::record('数据质量检查-已完成无完成时间查询失败: ' . $e->getMessage(), 'error');
+            return resultArray(['error' => '数据质量检查失败，请查看系统日志或联系管理员']);
+        }
+
+        // 5. 完成时间早于登记时间
+        try {
+            $invertedQuery = Db::name('customer_ledger')->alias('l');
+            $invertedQuery = $model->applyDataScopePublic($invertedQuery, $userId, 'l');
+            $inverted = $invertedQuery->where('l.register_time', '>', 0)
+                ->where('l.finish_time', '>', 0)
+                ->where('l.finish_time < l.register_time')
+                ->field('l.ledger_id, l.title, l.register_time, l.finish_time')
+                ->limit(20)->select();
+            foreach ($inverted as $row) {
+                $issues[] = [
+                    'type' => '完成时间异常',
+                    'ledger_id' => $row['ledger_id'],
+                    'title' => $row['title'] ?: '-',
+                    'detail' => '完成时间(' . date('Y-m-d', $row['finish_time']) . ')早于登记时间(' . date('Y-m-d', $row['register_time']) . ')',
+                    'suggestion' => '核实时间记录是否正确，修正异常时间'
+                ];
+            }
+        } catch (\Exception $e) {
+            \think\Log::record('数据质量检查-完成时间异常查询失败: ' . $e->getMessage(), 'error');
+            return resultArray(['error' => '数据质量检查失败，请查看系统日志或联系管理员']);
+        }
+
+        return resultArray(['data' => ['issues' => $issues, 'total' => count($issues), 'note' => '数据质量检查仅用于诊断，不自动修改数据']]);
+    }
+
+    /**
+     * 台账统计汇总：后端统一计算，支持日期范围筛选。
+     * 使用 ThinkPHP Query Builder，应用台账数据权限，单次条件聚合减少查询次数。
+     */
+    public function statistics()
+    {
+        $param = $this->param;
+        $userInfo = $this->userInfo;
+        $userId = (int)$userInfo['id'];
+        $model = model('CustomerLedger');
+
+        // 解析日期范围（与台账列表一致：优先 feedback_time，fallback register_time）
+        $startTime = 0;
+        $endTime = 0;
+        if (!empty($param['start_date'])) {
+            $startTime = strtotime($param['start_date'] . ' 00:00:00');
+        }
+        if (!empty($param['end_date'])) {
+            $endTime = strtotime($param['end_date'] . ' 23:59:59');
+        }
+
+        // 日期条件：使用 IF(feedback_time>0, feedback_time, register_time) 兼容历史数据
+        $dateCondition = function ($q) use ($startTime, $endTime) {
+            if ($startTime) {
+                $q->where("IF(l.feedback_time > 0, l.feedback_time, l.register_time) >= " . intval($startTime));
+            }
+            if ($endTime) {
+                $q->where("IF(l.feedback_time > 0, l.feedback_time, l.register_time) <= " . intval($endTime));
+            }
+        };
+
+        try {
+            // 单次条件聚合查询：总数 + 各状态数 + 转任务数
+            $baseQuery = Db::name('customer_ledger')->alias('l');
+            $baseQuery = $model->applyDataScopePublic($baseQuery, $userId, 'l');
+            if ($startTime || $endTime) {
+                $baseQuery->where($dateCondition);
+            }
+            $agg = $baseQuery->field([
+                'COUNT(*) as total',
+                "SUM(CASE WHEN l.status IN ('待处理','待验证') THEN 1 ELSE 0 END) as pending",
+                "SUM(CASE WHEN l.status='处理中' THEN 1 ELSE 0 END) as processing",
+                "SUM(CASE WHEN l.status='待发布' THEN 1 ELSE 0 END) as release_pending",
+                "SUM(CASE WHEN l.status='已完成' THEN 1 ELSE 0 END) as completed",
+                "SUM(CASE WHEN l.status='已关闭' THEN 1 ELSE 0 END) as closed",
+                "SUM(CASE WHEN l.task_id > 0 THEN 1 ELSE 0 END) as converted_count",
+            ])->find();
+
+            $total = (int)($agg['total'] ?? 0);
+            $convertedCount = (int)($agg['converted_count'] ?? 0);
+            $conversionRate = $total > 0 ? round($convertedCount / $total * 100, 2) : 0.0;
+
+            // 逾期数量（单独查询，条件较复杂）
+            $now = time();
+            $overdueThreshold = $now - 604800; // 7天前
+            $overdueQuery = Db::name('customer_ledger')->alias('l');
+            $overdueQuery = $model->applyDataScopePublic($overdueQuery, $userId, 'l');
+            if ($startTime || $endTime) {
+                $overdueQuery->where($dateCondition);
+            }
+            $overdueCount = (int)$overdueQuery->where(function ($q) use ($overdueThreshold) {
+                $q->where(function ($q2) use ($overdueThreshold) {
+                    $q2->whereNotIn('l.status', ['已完成', '已关闭'])
+                        ->where('l.register_time', '>', 0)
+                        ->where('l.register_time', '<', $overdueThreshold);
+                })->whereOr(function ($q3) {
+                    $q3->whereIn('l.status', ['已完成', '已关闭'])
+                        ->where('l.finish_time', '>', 0)
+                        ->where('l.register_time', '>', 0)
+                        ->where('l.finish_time > l.register_time + 604800');
+                });
+            })->count();
+
+            // 平均处理时长（小时）
+            $avgQuery = Db::name('customer_ledger')->alias('l');
+            $avgQuery = $model->applyDataScopePublic($avgQuery, $userId, 'l');
+            if ($startTime || $endTime) {
+                $avgQuery->where($dateCondition);
+            }
+            $avgRow = $avgQuery->where('l.status', '已完成')
+                ->where('l.finish_time', '>', 0)
+                ->where('l.register_time', '>', 0)
+                ->where('l.finish_time >= l.register_time')
+                ->field('AVG(l.finish_time - l.register_time) as avg_sec')
+                ->find();
+            $avgSeconds = $avgRow ? (float)($avgRow['avg_sec'] ?? 0) : 0.0;
+            $avgHours = $avgSeconds > 0 ? round($avgSeconds / 3600, 2) : 0.0;
+
+            // 按客户汇总 Top 20
+            $custQuery = Db::name('customer_ledger')->alias('l')
+                ->join('__CRM_CUSTOMER__ c', 'l.customer_id = c.customer_id', 'LEFT');
+            $custQuery = $model->applyDataScopePublic($custQuery, $userId, 'l');
+            if ($startTime || $endTime) {
+                $custQuery->where($dateCondition);
+            }
+            $byCustomer = $custQuery->where('l.customer_id', '>', 0)
+                ->field('c.name as customer_name, COUNT(*) as cnt')
+                ->group('l.customer_id, c.name')
+                ->order('cnt desc')
+                ->limit(20)
+                ->select() ?: [];
+
+            // 按负责人汇总 Top 20
+            $handlerQuery = Db::name('customer_ledger')->alias('l')
+                ->join('__ADMIN_USER__ u', 'l.handler_user_id = u.id', 'LEFT');
+            $handlerQuery = $model->applyDataScopePublic($handlerQuery, $userId, 'l');
+            if ($startTime || $endTime) {
+                $handlerQuery->where($dateCondition);
+            }
+            $byHandler = $handlerQuery->where('l.handler_user_id', '>', 0)
+                ->field('u.realname as handler_name, COUNT(*) as cnt')
+                ->group('l.handler_user_id, u.realname')
+                ->order('cnt desc')
+                ->limit(20)
+                ->select() ?: [];
+
+            // 按问题分类汇总
+            $catQuery = Db::name('customer_ledger')->alias('l');
+            $catQuery = $model->applyDataScopePublic($catQuery, $userId, 'l');
+            if ($startTime || $endTime) {
+                $catQuery->where($dateCondition);
+            }
+            $byCategory = $catQuery->field("IFNULL(NULLIF(l.category,''),'未分类') as category_name, COUNT(*) as cnt")
+                ->group("IFNULL(NULLIF(l.category,''),'未分类')")
+                ->order('cnt desc')
+                ->select() ?: [];
+
+            return resultArray(['data' => [
+                'total' => $total,
+                'pending' => (int)($agg['pending'] ?? 0),
+                'processing' => (int)($agg['processing'] ?? 0),
+                'release_pending' => (int)($agg['release_pending'] ?? 0),
+                'completed' => (int)($agg['completed'] ?? 0),
+                'closed' => (int)($agg['closed'] ?? 0),
+                'converted_count' => $convertedCount,
+                'conversion_rate' => $conversionRate,
+                'overdue_count' => $overdueCount,
+                'avg_hours' => $avgHours,
+                'by_customer' => $byCustomer,
+                'by_handler' => $byHandler,
+                'by_category' => $byCategory,
+            ]]);
+        } catch (\Exception $e) {
+            \think\Log::record('台账统计查询失败: ' . $e->getMessage(), 'error');
+            return resultArray(['error' => '台账统计查询失败，请联系管理员']);
+        }
     }
 }

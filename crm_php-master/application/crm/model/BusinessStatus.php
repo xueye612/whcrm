@@ -24,15 +24,15 @@ class BusinessStatus extends Common
      * [getDataList 商机状态list]
      * @author Michael_xu
      * @param  type_id  商机组ID
-     * @return 
-     */		
+     * @return
+     */
 	public function getDataList($type_id, $type = 0)
-    {  	
-    	if ($type == 1) {
-    		$list = $this->where(['type_id' => $type_id])->whereOr(['type_id' => 0])->select();
-    	} else {
-    		$list = $this->where(['type_id' => $type_id])->select();
-    	}
+    {
+					if ($type == 1) {
+						$list = $this->where(['type_id' => $type_id])->whereOr(['type_id' => 0])->select();
+					} else {
+						$list = $this->where(['type_id' => $type_id])->select();
+					}
         return $list ? : [];
     }
 
@@ -43,15 +43,15 @@ class BusinessStatus extends Common
      * @param     [number]                   $page     [当前页数]
      * @param     [number]                   $limit    [每页数量]
      * @return    [array]                    [description]
-     */		
+     */
 	public function getTypeList($request)
     {
         # H5不传page和limit（查全部），商机组不会有太多，把limit设置大一些就行。
         if (empty($request['limit'])) $request['limit'] = 100;
         if (empty($request['page']))  $request['page'] = 1;
 
-    	$userModel = new \app\admin\model\User();
-    	$structureModel = new \app\admin\model\Structure();
+					$userModel = new \app\admin\model\User();
+					$structureModel = new \app\admin\model\Structure();
         $request = $this->fmtRequest( $request );
         $map = $request['map'] ? : [];
         if (isset($map['search']) && $map['search']) {
@@ -63,30 +63,30 @@ class BusinessStatus extends Common
 		unset($map['search']);
 		$list = db('crm_business_type')
 				->where($map)
-        		->page($request['page'], $request['limit'])
-        		->select();
+										->page($request['page'], $request['limit'])
+										->select();
 
         $dataCount = db('crm_business_type')->where($map)->count('type_id');
         foreach ($list as $k=>$v) {
-        	$list[$k]['create_user_id_info'] = $userModel->getUserById($v['create_user_id']); 
-        	$list[$k]['structure_id_info'] = $structureModel->getListByStr($v['structure_id']) ? : [];
-        	$list[$k]['create_time'] = !empty($v['create_time']) ? date('Y-m-d H:i:s', $v['create_time']) : null;
+									$list[$k]['create_user_id_info'] = $userModel->getUserById($v['create_user_id']);
+									$list[$k]['structure_id_info'] = $structureModel->getListByStr($v['structure_id']) ? : [];
+									$list[$k]['create_time'] = !empty($v['create_time']) ? date('Y-m-d H:i:s', $v['create_time']) : null;
             $list[$k]['update_time'] = !empty($v['update_time']) ? date('Y-m-d H:i:s', $v['update_time']) : null;
             $list[$k]['status_list'] = db('crm_business_status')->where('type_id', $v['type_id'])->order('order_id', 'asc')->select();
-        }    
+        }
         $data = [];
         $data['list'] = $list;
         $data['dataCount'] = $dataCount ? : 0;
 
         return $data;
-    }    
+    }
 
 	/**
 	 * 创建商机组
 	 * @author Michael_xu
-	 * @param  
-	 * @return                            
-	 */	
+	 * @param
+	 * @return
+	 */
 	public function createData($param)
 	{
 		if (!$param['name']) {
@@ -95,7 +95,7 @@ class BusinessStatus extends Common
 		}
 		if (!$param['status']) {
 			$this->error = '请至少配置一个商机阶段';
-			return false;			
+			return false;
 		}
 		$data = [];
 		$data['name'] = $param['name'];
@@ -113,27 +113,29 @@ class BusinessStatus extends Common
 				$statusData[$k]['type_id'] = $type_id;
 				$statusData[$k]['order_id'] = $i;
 				if (empty($v['name']) && empty($v['rate'])) {
-	    			unset($statusData[$k]);
-	    		} else {
-	    			$i++;
-	    		}
+								unset($statusData[$k]);
+							} else {
+								$i++;
+							}
 			}
 			db('crm_business_status')->insertAll($statusData);
+			# 清除商机状态组缓存
+			cache('BI_queryCache_StatusList_Data', NULL);
 			# 系统操作日志
             SystemActionLog($param['create_user_id'], 'crm_business','customer', $type_id, 'save',$param['name'] , '', '','添加了商机组：'.$param['name']);
             return true;
 		} else {
 			$this->error = '添加失败';
 			return false;
-		} 			
+		}
 	}
 
 	/**
 	 * 编辑商机组信息
 	 * @author Michael_xu
 	 * @param  type_id 商机组类型ID
-	 * @return                            
-	 */	
+	 * @return
+	 */
 	public function updateDataById($param, $type_id = '')
 	{
 		$dataInfo = db('crm_business_type')->where(['type_id' => $type_id])->find();
@@ -146,14 +148,14 @@ class BusinessStatus extends Common
 		foreach ($unUpdateField as $v) {
 			unset($param[$v]);
 		}
-		
+
 		if (!$param['name']) {
 			$this->error = '请填写商机组名称';
 			return false;
 		}
 		if (!$param['status']) {
 			$this->error = '请至少配置一个商机阶段';
-			return false;			
+			return false;
 		}
 
 		$data = [];
@@ -176,46 +178,61 @@ class BusinessStatus extends Common
 				$statusData[$k]['order_id'] = $i;
 
 				if ($v['status_id']) {
-	    			//编辑
-	    			$newIds[] = $v['status_id'];
-	    			$statusData[$k]['status_id'] = $v['status_id'];
-	    			$this->isUpdate()->saveAll($statusData);
-	    			unset($statusData[$k]);
-	    		}
-	    		if (empty($v['name']) && empty($v['rate'])) {
-	    			unset($statusData[$k]);
-	    		} else {
-	    			$i++;
-	    		}
+								//编辑
+								$newIds[] = $v['status_id'];
+								$statusData[$k]['status_id'] = $v['status_id'];
+								$this->isUpdate()->saveAll($statusData);
+								unset($statusData[$k]);
+							}
+							if (empty($v['name']) && empty($v['rate'])) {
+								unset($statusData[$k]);
+							} else {
+								$i++;
+							}
 			}
 			//删除
-	    	$oldIds = $this->where(['type_id' => $type_id])->column('status_id'); //原ID
-	    	$delIds = array_diff($oldIds, $newIds); //数组差集
-	    	if ($delIds) {
-	    		db('crm_business_status')->where(['status_id' => ['in',$delIds]])->delete();
-	    	}
+			$oldIds = $this->where(['type_id' => $type_id])->column('status_id'); //原ID
+			$delIds = array_diff($oldIds, $newIds); //数组差集
+			if ($delIds) {
+				// 删除保护：阶段被商机或奖励规则引用时禁止删除，并提示引用数量
+				$blocked = [];
+				foreach ($delIds as $sid) {
+					$bizCount = db('crm_business')->where(['status_id' => $sid])->count();
+					$ruleCount = db('business_stage_reward_rule')->where(['status_id' => $sid])->count();
+					if ($bizCount > 0 || $ruleCount > 0) {
+						$stageName = db('crm_business_status')->where('status_id', $sid)->value('name');
+						$blocked[] = '阶段「' . ($stageName ?: '#' . $sid) . '」被 ' . $bizCount . ' 条商机、' . $ruleCount . ' 条奖励规则引用';
+					}
+				}
+				if ($blocked) {
+					throw new \Exception('以下阶段已被引用，不能删除：' . implode('；', $blocked));
+				}
+				db('crm_business_status')->where(['status_id' => ['in',$delIds]])->delete();
+			}
 			//新增
 			db('crm_business_status')->insertAll($statusData);
 			// 提交事务
-    		Db::commit();
-    		# 系统操作日志
+			Db::commit();
+			// 清除商机状态组缓存，避免编辑后仍读取旧数据
+			cache('BI_queryCache_StatusList_Data', NULL);
+			# 系统操作日志
             SystemActionLog($param['user_id'], 'crm_business','customer', $type_id, 'update',$dataInfo['name'] , '', '','编辑了商机组：'.$dataInfo['name']);
             return true;
 		} catch (\Exception $e) {
 			$this->error = '编辑失败';
 			// 回滚事务
-		    Db::rollback();					
-    		return false;   				    
-		}				
+		    Db::rollback();
+			return false;
+		}
 	}
 
 	/**
      * 商机组数据
      * @param  $status_id 商机组ID
-     * @return 
-     */	
-   	public function getDataById($type_id = '')
-   	{
+     * @return
+     */
+				public function getDataById($type_id = '')
+				{
 		if (!$data = db('crm_business_type')->where(['type_id' => $type_id])->find()) {
 			$this->error = '数据不存在或已删除';
 			return false;
@@ -224,7 +241,7 @@ class BusinessStatus extends Common
         $data['structure_id'] = !empty($data['structure_id']) ? stringToArray($data['structure_id']) : [];
 		$data['status'] = $status ? : [];
 		return $data;
-   	}
+				}
 
 	/**
 	 * [delDataById 根据id删除数据]
@@ -238,28 +255,34 @@ class BusinessStatus extends Common
 			$this->error = '删除失败';
 			return false;
 		}
-		//状态组已被使用，则不能删除
-		$resDel = true;
-//		if (db('crm_business')->where(['type_id' => $id])->find()) {
-//			$this->error = '状态组已被使用，不能删除';
-//			return false;
-//		}
+		$typeId = (int)$param['id'];
+		$typeInfo = db('crm_business_type')->where(['type_id' => $typeId])->find();
+		if (!$typeInfo) {
+			$this->error = '数据不存在或已删除';
+			return false;
+		}
+		// 删除保护：商机组被历史商机或奖励规则引用时只能停用/隐藏，不能物理删除
+		$bizCount = db('crm_business')->where(['type_id' => $typeId])->count();
+		$ruleCount = db('business_stage_reward_rule')->where(['type_id' => $typeId])->count();
 		//启动事务
 		Db::startTrans();
 		try {
-            db('crm_business_type')->where(['type_id' => $param['id']])->update(['is_display' => 0]);
+			// 始终只做逻辑停用（is_display=0, status=0），不物理删除商机组和阶段
+			// 这样历史奖励规则仍能按 type_id/status_id 关联显示原名称
+			db('crm_business_type')->where(['type_id' => $typeId])->update(['is_display' => 0, 'status' => 0]);
 			// 提交事务
-    		Db::commit();
-            # 系统操作日志
-            $data=db('crm_business_type')->where(['type_id' => $param['id']])->find();
-            SystemActionLog($param['user_id'], 'crm_business','customer', $param['id'],  'update',$data['name'] , '', '','删除了商机组：'.$data['name']);
-            
-            return true;
+			Db::commit();
+			# 清除商机状态组缓存，避免停用后新建仍读到旧数据
+			cache('BI_queryCache_StatusList_Data', NULL);
+			# 系统操作日志
+			SystemActionLog($param['user_id'], 'crm_business','customer', $typeId,  'update',$typeInfo['name'] , '', '','删除了商机组：'.$typeInfo['name'] . ($bizCount > 0 || $ruleCount > 0 ? '（已被引用，仅停用）' : ''));
+
+			return true;
 		} catch(\Exception $e) {
 			$this->error = '删除失败';
 			// 回滚事务
-			Db::rollback();	
+			Db::rollback();
 			return false;
-		}		
-	}	   	
+		}
+	}
 }

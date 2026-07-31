@@ -55,15 +55,22 @@
 
     <el-button
       v-debounce="send"
-      v-if="showStyle === 'hideBorder'"
+      v-if="isUnfold && showStyle === 'hideBorder'"
+      :disabled="!sendContent.length"
       class="send-btn"
-      type="primary">保存</el-button>
+      type="primary"
+      size="mini">保存</el-button>
     <el-button
       v-debounce="send"
-      v-else
+      v-if="isUnfold && showStyle !== 'hideBorder'"
       icon="wk wk-top"
       class="send-btn"
       type="primary">发布</el-button>
+    <el-button
+      v-if="isUnfold && showStyle === 'hideBorder'"
+      class="cancel-btn"
+      size="mini"
+      @click="addClose">取消</el-button>
 
     <task-create
       v-if="taskCreateShow"
@@ -246,9 +253,13 @@ export default {
 .add {
   position: relative;
   background-color: white;
-  border-radius: $xr-border-radius-base;
+  border-radius: 8px;
   border: 1px solid $xr-border-line-color;
-  padding: 5px;
+  padding: 6px;
+  transition: border-color 0.2s, box-shadow 0.2s;
+  &:hover {
+    border-color: #c0c4cc;
+  }
 
   .input {
     width: calc(100% - 50px);
@@ -261,13 +272,13 @@ export default {
   .add-info {
     padding: 0 8px;
     .el-date-editor {
-      width: 110px;
-      font-size: 12px;
+      width: 130px;
+      font-size: 14px;
       ::v-deep .el-input__prefix {
         left: 0;
         .el-icon-date {
-          width: 24px;
-          line-height: 24px;
+          width: 28px;
+          line-height: 28px;
         }
       }
 
@@ -276,26 +287,27 @@ export default {
       }
 
       ::v-deep .el-input__inner {
-        border-radius: 12px;
-        line-height: 24px;
-        height: 24px;
-        padding-left: 20px;
-        padding-right: 5px;
+        border-radius: 14px;
+        line-height: 28px;
+        height: 28px;
+        padding-left: 22px;
+        padding-right: 6px;
         border: none;
         background-color: #f0f0f0;
+        font-size: 14px;
       }
     }
 
     &__btn {
       border: 1px solid #e6e6e6;
       color: #c0c4cc;
-      width: 24px;
-      height: 24px;
-      border-radius: 12px;
+      width: 28px;
+      height: 28px;
+      border-radius: 14px;
       display: inline-block;
       text-align: center;
-      line-height: 24px;
-      font-size: 12px;
+      line-height: 28px;
+      font-size: 14px;
       cursor: pointer;
     }
 
@@ -309,14 +321,14 @@ export default {
     }
 
     .no-time-top {
-      width: 24px;
+      width: 28px;
       cursor: pointer;
       ::v-deep .el-input__inner {
         background-color: white;
         border: 1px solid $xr-border-line-color;
         padding: 0;
-        line-height: 24px;
-        height: 24px;
+        line-height: 28px;
+        height: 28px;
       }
     }
 
@@ -335,9 +347,6 @@ export default {
   &.hide-border {
     border-color: white;
     padding: 0;
-    .send-btn {
-      display: none;
-    }
 
     ::v-deep .el-input__icon{
       color: $xr-color-primary;
@@ -368,20 +377,24 @@ export default {
 
 // 展开
 .add.unfold {
+  border-color: $xr-color-primary;
+  box-shadow: 0 2px 8px rgba(64, 158, 255, 0.1);
   .input {
-    margin-bottom: 15px;
+    margin-bottom: 8px;
   }
 }
 
 .send-btn {
-  position: absolute;
-  z-index: 1;
-  right: 10px;
-  bottom: 5px;
-
-  ::v-deep i {
-    font-size: 13px;
-  }
+  display: inline-block;
+  margin-top: 8px;
+  margin-left: auto;
+  border-radius: 4px;
+}
+.cancel-btn {
+  display: inline-block;
+  margin-top: 8px;
+  margin-left: 8px;
+  border-radius: 4px;
 }
 
 // 选择负责人

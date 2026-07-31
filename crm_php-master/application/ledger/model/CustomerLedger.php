@@ -192,6 +192,26 @@ class CustomerLedger extends Common
         });
     }
 
+    /**
+     * 公共方法：对查询应用台账数据权限范围（供控制器统计等调用）
+     * @param mixed $query ThinkPHP 查询构建器
+     * @param int $userId 当前用户ID
+     * @param string $alias 表别名，默认 'ledger'
+     * @return mixed
+     */
+    public function applyDataScopePublic($query, $userId, $alias = 'ledger')
+    {
+        return $this->applyDataScope($query, $userId, $alias);
+    }
+
+    /**
+     * 判断用户是否为管理员（供控制器调用）
+     */
+    public function isAdminUserPublic($userId)
+    {
+        return $this->isAdminUser($userId);
+    }
+
     protected function isAdminUser($userId)
     {
         if (empty($userId)) {

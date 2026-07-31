@@ -53,8 +53,8 @@
         <el-form-item label="问题内容" prop="description">
           <el-input
             v-model.trim="form.description"
-            type="textarea"
             :rows="5"
+            type="textarea"
             maxlength="2000"
             placeholder="现场情况、复现步骤等"
             @focus="scrollFieldInContainer" />
@@ -70,9 +70,9 @@
             <button
               v-for="(item, index) in feedbackContactsOptions"
               :key="item.contacts_id || item.id || index"
+              :class="{ 'is-active': form.feedback_user === getFeedbackContactLabel(item) }"
               type="button"
               class="contact-chip"
-              :class="{ 'is-active': form.feedback_user === getFeedbackContactLabel(item) }"
               @click="selectFeedbackUser(item)">
               {{ getFeedbackContactLabel(item) }}
             </button>
@@ -101,7 +101,7 @@
 
     <div class="quick-actions">
       <el-button @click="restoreDraft">恢复草稿</el-button>
-      <el-button type="primary" :loading="submitting" @click="submit">保存</el-button>
+      <el-button :loading="submitting" type="primary" @click="submit">保存</el-button>
     </div>
   </div>
 </template>
@@ -154,7 +154,7 @@ export default {
         title: [{ required: true, message: '请填写问题标题', trigger: 'blur' }],
         description: [{ required: true, message: '请填写问题内容', trigger: 'blur' }]
       },
-      _contractSearchTimer: null
+      contractSearchTimer: null
     }
   },
   computed: {
@@ -185,8 +185,8 @@ export default {
     document.addEventListener('touchstart', this._onDocumentTouch, { passive: true })
   },
   beforeDestroy() {
-    if (this._contractSearchTimer) {
-      clearTimeout(this._contractSearchTimer)
+    if (this.contractSearchTimer) {
+      clearTimeout(this.contractSearchTimer)
     }
     if (this._onDocumentTouch) {
       document.removeEventListener('touchstart', this._onDocumentTouch)
@@ -237,10 +237,10 @@ export default {
         }
       }
       this.showContractDropdown = true
-      if (this._contractSearchTimer) {
-        clearTimeout(this._contractSearchTimer)
+      if (this.contractSearchTimer) {
+        clearTimeout(this.contractSearchTimer)
       }
-      this._contractSearchTimer = setTimeout(() => {
+      this.contractSearchTimer = setTimeout(() => {
         this.searchContracts(keyword)
       }, 300)
     },

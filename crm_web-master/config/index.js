@@ -12,8 +12,8 @@ module.exports = {
     proxyTable: (() => {
       // 本地调试后端地址：通过环境变量 CRM_PROXY_TARGET 指定，例如 PowerShell:
       //   $env:CRM_PROXY_TARGET='<本机后端地址>'; npm run dev
-      // 未设置时默认使用线上地址
-      const apiProxyTarget = process.env.CRM_PROXY_TARGET || process.env.PROXY_TARGET || 'https://s.u956.com'
+      // 未设置时默认使用本地地址
+      const apiProxyTarget = process.env.CRM_PROXY_TARGET || process.env.PROXY_TARGET || 'http://localhost'
       return {
         '/api': {
           target: apiProxyTarget,

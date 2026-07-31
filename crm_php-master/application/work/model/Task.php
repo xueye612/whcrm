@@ -1092,7 +1092,23 @@ class Task extends Common
         $dataCount = db('task')->alias('task')->where($map)->where($whereStr)->where($taskSearch)->where($timeWhere)->where($labelWhere)->count();
         $taskList = [];
         if ($dataCount) {
-            $taskList = db('task')
+            // W/R/K 筛选：需要关联 task_workflow 表
+            $wrkFilter = !empty($param['_wrk_filter']) ? $param['_wrk_filter'] : [];
+            $statusFilter = !empty($param['_status_filter']) ? $param['_status_filter'] : '';
+            $needWrkJoin = !empty($wrkFilter['init_w']) || !empty($wrkFilter['init_r']) || !empty($wrkFilter['init_k']);
+
+            // 如果有 W/R/K 筛选，先查出符合条件的 task_id 列表，再在主查询中过滤
+            $wrkTaskIds = null;
+            if ($needWrkJoin) {
+                $wrkQuery = db('task_workflow');
+                if (!empty($wrkFilter['init_w'])) $wrkQuery->where('init_w', $wrkFilter['init_w']);
+                if (!empty($wrkFilter['init_r'])) $wrkQuery->where('init_r', $wrkFilter['init_r']);
+                if (!empty($wrkFilter['init_k'])) $wrkQuery->where('init_k', $wrkFilter['init_k']);
+                $wrkTaskIds = $wrkQuery->column('task_id');
+                if (empty($wrkTaskIds)) $wrkTaskIds = [0]; // 无匹配则返回空
+            }
+
+            $query = db('task')
                 ->alias('task')
                 ->join('AdminUser u', 'u.id = task.main_user_id', 'LEFT')
                 ->join('Work w', 'w.work_id = task.work_id', 'LEFT')
@@ -1101,9 +1117,35 @@ class Task extends Common
                 ->where($whereStr)
                 ->where($taskSearch)
                 ->where($timeWhere)
-                ->where($labelWhere)
-                ->order($order)
-                ->select();
+                ->where($labelWhere);
+
+            // 状态筛选
+            if ($statusFilter === 'delayed') {
+                $query->where('task.stop_time', '>', 0)->where('task.stop_time', '<', time())->where('task.status', '<>', 5);
+            } elseif ($statusFilter !== '') {
+                $query->where('task.status', (int)$statusFilter);
+            }
+
+            // W/R/K 筛选
+            if ($wrkTaskIds !== null) {
+                $query->where('task.task_id', 'in', $wrkTaskIds);
+            }
+
+            $taskList = $query->order($order)->select();
+            // 批量查询工作流 W/R/K 数据，避免 N+1 查询
+            $wfMap = [];
+            if ($taskList) {
+                $wfTaskIds = [];
+                foreach ($taskList as $v) {
+                    $wfTaskIds[] = (int)$v['task_id'];
+                }
+                if ($wfTaskIds) {
+                    $wfRows = Db::name('task_workflow')->whereIn('task_id', $wfTaskIds)->field('task_id,init_w,init_r,init_k,main_status,workflow_version')->select();
+                    foreach ($wfRows as $wfRow) {
+                        $wfMap[(int)$wfRow['task_id']] = $wfRow;
+                    }
+                }
+            }
             foreach ($taskList as $key => $value) {
                 if ($value['pid'] > 0) {
                     $p_det = $this->field('task_id,name')->where(['task_id' => $value['pid']])->find();
@@ -1132,6 +1174,17 @@ class Task extends Common
                 if (!empty($value['stop_time']) && (strtotime(date('Ymd')) + 86399 > $value['stop_time'])) $is_end = 1;
                 $taskList[$key]['is_end'] = $is_end;
                 $taskList[$key]['checked'] = ($value['status'] == '5') ? true : false;
+                // 工作流 W/R/K 数据（兼容前端 snake_case 和 camelCase）
+                $wfData = isset($wfMap[(int)$value['task_id']]) ? $wfMap[(int)$value['task_id']] : null;
+                $taskList[$key]['init_w'] = $wfData ? $wfData['init_w'] : '';
+                $taskList[$key]['init_r'] = $wfData ? $wfData['init_r'] : '';
+                $taskList[$key]['init_k'] = $wfData ? $wfData['init_k'] : '';
+                $taskList[$key]['initW'] = $wfData ? $wfData['init_w'] : '';
+                $taskList[$key]['initR'] = $wfData ? $wfData['init_r'] : '';
+                $taskList[$key]['initK'] = $wfData ? $wfData['init_k'] : '';
+                $taskList[$key]['main_status'] = $wfData ? $wfData['main_status'] : '';
+                $taskList[$key]['mainStatus'] = $wfData ? $wfData['main_status'] : '';
+                $taskList[$key]['workflow_version'] = $wfData ? (int)$wfData['workflow_version'] : 0;
             }
         }
         $data = [];
