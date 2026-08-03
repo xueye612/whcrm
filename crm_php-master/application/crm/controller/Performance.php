@@ -550,7 +550,7 @@ class Performance extends ApiCommon
         $sourceType = 'responsibility_case';
         $sourceId = 'case:' . $caseId;
         $now = time();
-        $exist = Db::name('performance_fact')->where(['source_type' => $sourceType, 'source_id' => $sourceId, 'period' => $period])->find();
+        $exist = Db::name('performance_fact')->where(['source_type' => $sourceType, 'source_id' => $sourceId])->find();
         $perfId = $this->ensurePerformanceSummary($userId, $period, $submitterUserId);
         $row = [
             'perf_id' => $perfId, 'user_id' => $userId, 'period' => $period,
@@ -700,83 +700,98 @@ class Performance extends ApiCommon
         $perfId = $this->ensurePerformanceSummary($userId, $period, $userInfo['id']);
 
         // 1) 项目任务：workflow_version=2；以 task_transition_log 迁移到"已完成"的日志时间为准
-        $taskRows = Db::name('task_transition_log')->alias('l')
-            ->join('__TASK__ t', 'l.task_id = t.task_id')
-            ->join('__TASK_WORKFLOW__ w', 't.task_id = w.task_id')
-            ->where('t.main_user_id', $userId)
-            ->where('w.workflow_version', 2)
-            ->where('l.to_status', \app\work\logic\WorkflowService::STATUS_DONE)
-            ->where('l.create_time', '>=', $qStart)->where('l.create_time', '<=', $qEnd)
-            ->field('t.task_id, t.name, l.create_time as done_time, l.log_id, l.user_id as op_user_id')
-            ->select();
         $taskInserted = 0;
-        foreach ($taskRows as $t) {
-            $sourceType = 'task_done';
-            $sourceId = 'task:' . (int)$t['task_id'] . ':log:' . (int)$t['log_id'];
-            $existFact = Db::name('performance_fact')->where(['source_type' => $sourceType, 'source_id' => $sourceId, 'period' => $period])->find();
-            if ($existFact) continue;
-            Db::name('performance_fact')->insertGetId([
-                'perf_id' => $perfId, 'user_id' => $userId, 'period' => $period,
-                'dimension' => 'task', 'direction' => PerformanceService::DIR_POSITIVE,
-                'fact_type' => 'task',
-                'title' => '已完成任务：' . ($t['name'] ?? ('#' . $t['task_id'])),
-                'source_type' => $sourceType, 'source_id' => $sourceId,
-                'occurred_time' => (int)$t['done_time'],
-                'evidence' => 'task_id=' . (int)$t['task_id'] . ' done_log=' . (int)$t['log_id'] . ' op_user_id=' . (int)$t['op_user_id'] . ' workflow_version=2',
-                'status' => PerformanceService::FACT_PENDING,
-                'submit_user_id' => (int)$userInfo['id'],
-                'create_time' => $now, 'update_time' => $now,
-            ]);
-            $taskInserted++;
-        }
+        $taskRows = [];
+        try {
+            if ($this->tableExists('5kcrm_task_transition_log')) {
+                $taskRows = Db::name('task_transition_log')->alias('l')
+                    ->join('__TASK__ t', 'l.task_id = t.task_id')
+                    ->join('__TASK_WORKFLOW__ w', 't.task_id = w.task_id')
+                    ->where('t.main_user_id', $userId)
+                    ->where('w.workflow_version', 2)
+                    ->where('l.to_status', \app\work\logic\WorkflowService::STATUS_DONE)
+                    ->where('l.create_time', '>=', $qStart)->where('l.create_time', '<=', $qEnd)
+                    ->field('t.task_id, t.name, l.create_time as done_time, l.log_id, l.user_id as op_user_id')
+                    ->select();
+                foreach ($taskRows as $t) {
+                    $sourceType = 'task_done';
+                    $sourceId = 'task:' . (int)$t['task_id'] . ':log:' . (int)$t['log_id'];
+                    $existFact = Db::name('performance_fact')->where(['source_type' => $sourceType, 'source_id' => $sourceId])->find();
+                    if ($existFact) continue;
+                    Db::name('performance_fact')->insertGetId([
+                        'perf_id' => $perfId, 'user_id' => $userId, 'period' => $period,
+                        'dimension' => 'task', 'direction' => PerformanceService::DIR_POSITIVE,
+                        'fact_type' => 'task',
+                        'title' => '已完成任务：' . ($t['name'] ?? ('#' . $t['task_id'])),
+                        'source_type' => $sourceType, 'source_id' => $sourceId,
+                        'occurred_time' => (int)$t['done_time'],
+                        'evidence' => 'task_id=' . (int)$t['task_id'] . ' done_log=' . (int)$t['log_id'] . ' op_user_id=' . (int)$t['op_user_id'] . ' workflow_version=2',
+                        'status' => PerformanceService::FACT_PENDING,
+                        'submit_user_id' => (int)$userInfo['id'],
+                        'create_time' => $now, 'update_time' => $now,
+                    ]);
+                    $taskInserted++;
+                }
+            }
+        } catch (\Exception $e) {}
         $factsSummary['task_done_inserted'] = $taskInserted;
         $factsSummary['task_done_total'] = count($taskRows);
 
         // 2) 测试任务：符合/不符合分别生成正/负向事实；使用评定时间（review_time）
-        $testRowsCompliant = $this->queryTestFacts($userId, $qStart, $qEnd, \app\work\logic\WorkflowService::REVIEW_COMPLIANT);
-        $testRowsNonCompliant = $this->queryTestFacts($userId, $qStart, $qEnd, \app\work\logic\WorkflowService::REVIEW_NON_COMPLY);
         $testPosInserted = 0; $testNegInserted = 0;
-        foreach ($testRowsCompliant as $tr) {
-            if ($this->upsertTestFact($perfId, $userId, $period, $tr, true, $userInfo['id'], $now)) $testPosInserted++;
-        }
-        foreach ($testRowsNonCompliant as $tr) {
-            if ($this->upsertTestFact($perfId, $userId, $period, $tr, false, $userInfo['id'], $now)) $testNegInserted++;
-        }
+        $testRowsCompliant = []; $testRowsNonCompliant = [];
+        try {
+            if ($this->tableExists('5kcrm_task_test_ext')) {
+                $testRowsCompliant = $this->queryTestFacts($userId, $qStart, $qEnd, \app\work\logic\WorkflowService::REVIEW_COMPLIANT);
+                $testRowsNonCompliant = $this->queryTestFacts($userId, $qStart, $qEnd, \app\work\logic\WorkflowService::REVIEW_NON_COMPLY);
+                foreach ($testRowsCompliant as $tr) {
+                    if ($this->upsertTestFact($perfId, $userId, $period, $tr, true, $userInfo['id'], $now)) $testPosInserted++;
+                }
+                foreach ($testRowsNonCompliant as $tr) {
+                    if ($this->upsertTestFact($perfId, $userId, $period, $tr, false, $userInfo['id'], $now)) $testNegInserted++;
+                }
+            }
+        } catch (\Exception $e) {}
         $factsSummary['test_compliant_inserted'] = $testPosInserted;
         $factsSummary['test_compliant_total'] = count($testRowsCompliant);
         $factsSummary['test_non_compliant_inserted'] = $testNegInserted;
         $factsSummary['test_non_compliant_total'] = count($testRowsNonCompliant);
 
         // 3) 已结算奖励候选：使用真实结算时间
-        $settleTimeExpr = $this->settleTimeExpr();
-        $rewardRows = Db::name('reward_candidate')->alias('c')
-            ->join('__REWARD_BATCH__ b', 'c.batch_id = b.batch_id', 'LEFT')
-            ->where('c.user_id', $userId)
-            ->where('c.status', \app\crm\logic\RewardService::ST_SETTLED)
-            ->where($settleTimeExpr, '>=', $qStart)->where($settleTimeExpr, '<=', $qEnd)
-            ->field('c.cand_id, c.amount, c.source_type, ' . $settleTimeExpr . ' AS settle_time, c.reason, c.rules_version, c.batch_id')
-            ->select();
         $rewardInserted = 0;
-        foreach ($rewardRows as $r) {
-            $sourceType = 'reward_settled';
-            $sourceId = 'reward:' . (int)$r['cand_id'];
-            $existFact = Db::name('performance_fact')->where(['source_type' => $sourceType, 'source_id' => $sourceId, 'period' => $period])->find();
-            if ($existFact) continue;
-            $settleTime = (int)$r['settle_time'];
-            Db::name('performance_fact')->insertGetId([
-                'perf_id' => $perfId, 'user_id' => $userId, 'period' => $period,
-                'dimension' => 'collab', 'direction' => PerformanceService::DIR_POSITIVE,
-                'fact_type' => 'reward',
-                'title' => '奖励结算：' . ($r['reason'] ?? ('候选#' . $r['cand_id'])),
-                'source_type' => $sourceType, 'source_id' => $sourceId,
-                'occurred_time' => $settleTime,
-                'evidence' => 'cand_id=' . (int)$r['cand_id'] . ' amount=' . $r['amount'] . ' source_type=' . $r['source_type'] . ' rules_version=' . ($r['rules_version'] ?? 'v1') . ' batch_id=' . (int)$r['batch_id'] . ' settle_time=' . date('Y-m-d H:i:s', $settleTime),
-                'status' => PerformanceService::FACT_PENDING,
-                'submit_user_id' => (int)$userInfo['id'],
-                'create_time' => $now, 'update_time' => $now,
-            ]);
-            $rewardInserted++;
-        }
+        $rewardRows = [];
+        try {
+            if ($this->tableExists('5kcrm_reward_candidate')) {
+                $settleTimeExpr = $this->settleTimeExpr();
+                $rewardRows = Db::name('reward_candidate')->alias('c')
+                    ->join('__REWARD_BATCH__ b', 'c.batch_id = b.batch_id', 'LEFT')
+                    ->where('c.user_id', $userId)
+                    ->where('c.status', \app\crm\logic\RewardService::ST_SETTLED)
+                    ->where($settleTimeExpr, '>=', $qStart)->where($settleTimeExpr, '<=', $qEnd)
+                    ->field('c.cand_id, c.amount, c.source_type, ' . $settleTimeExpr . ' AS settle_time, c.reason, c.rules_version, c.batch_id')
+                    ->select();
+                foreach ($rewardRows as $r) {
+                    $sourceType = 'reward_settled';
+                    $sourceId = 'reward:' . (int)$r['cand_id'];
+                    $existFact = Db::name('performance_fact')->where(['source_type' => $sourceType, 'source_id' => $sourceId])->find();
+                    if ($existFact) continue;
+                    $settleTime = (int)$r['settle_time'];
+                    Db::name('performance_fact')->insertGetId([
+                        'perf_id' => $perfId, 'user_id' => $userId, 'period' => $period,
+                        'dimension' => 'collab', 'direction' => PerformanceService::DIR_POSITIVE,
+                        'fact_type' => 'reward',
+                        'title' => '奖励结算：' . ($r['reason'] ?? ('候选#' . $r['cand_id'])),
+                        'source_type' => $sourceType, 'source_id' => $sourceId,
+                        'occurred_time' => $settleTime,
+                        'evidence' => 'cand_id=' . (int)$r['cand_id'] . ' amount=' . $r['amount'] . ' source_type=' . $r['source_type'] . ' rules_version=' . ($r['rules_version'] ?? 'v1') . ' batch_id=' . (int)$r['batch_id'] . ' settle_time=' . date('Y-m-d H:i:s', $settleTime),
+                        'status' => PerformanceService::FACT_PENDING,
+                        'submit_user_id' => (int)$userInfo['id'],
+                        'create_time' => $now, 'update_time' => $now,
+                    ]);
+                    $rewardInserted++;
+                }
+            }
+        } catch (\Exception $e) {}
         $factsSummary['reward_settled_inserted'] = $rewardInserted;
         $factsSummary['reward_settled_total'] = count($rewardRows);
 
@@ -785,44 +800,70 @@ class Performance extends ApiCommon
         $factsSummary['wrk_inserted'] = $wrkInserted;
 
         // 5) 台账质量问题：仅"已确认"状态生成负向事实
-        $ledgerQualityIssues = Db::name('ledger_quality_issue')->alias('qi')
-            ->join('__CUSTOMER_LEDGER__ l', 'qi.ledger_id = l.ledger_id')
-            ->where('l.handler_user_id', $userId)
-            ->where('qi.status', PerformanceService::LEDGER_Q_CONFIRMED)
-            ->where('qi.confirm_time', '>=', $qStart)->where('qi.confirm_time', '<=', $qEnd)
-            ->field('qi.issue_id, qi.ledger_id, qi.issue_type, qi.issue_desc, qi.evidence, qi.confirm_time, qi.confirmer_user_id')
-            ->select();
         $ledgerInserted = 0;
-        foreach ($ledgerQualityIssues as $lm) {
-            $sourceType = 'ledger_quality_confirmed';
-            $sourceId = 'issue:' . (int)$lm['issue_id'];
-            $existFact = Db::name('performance_fact')->where(['source_type' => $sourceType, 'source_id' => $sourceId, 'period' => $period])->find();
-            if ($existFact) continue;
-            Db::name('performance_fact')->insertGetId([
-                'perf_id' => $perfId, 'user_id' => $userId, 'period' => $period,
-                'dimension' => 'quality', 'direction' => PerformanceService::DIR_NEGATIVE,
-                'fact_type' => 'ledger',
-                'title' => '台账质量问题：' . (string)$lm['issue_type'],
-                'source_type' => $sourceType, 'source_id' => $sourceId,
-                'occurred_time' => (int)$lm['confirm_time'],
-                'evidence' => 'issue_id=' . (int)$lm['issue_id'] . ' ledger_id=' . (int)$lm['ledger_id'] . ' confirmer_user_id=' . (int)$lm['confirmer_user_id'] . ' desc=' . (string)$lm['issue_desc'] . ' evidence=' . (string)$lm['evidence'],
-                'status' => PerformanceService::FACT_PENDING,
-                'submit_user_id' => (int)$userInfo['id'],
-                'create_time' => $now, 'update_time' => $now,
-            ]);
-            $ledgerInserted++;
-        }
+        $ledgerQualityIssues = [];
+        try {
+            if ($this->tableExists('5kcrm_ledger_quality_issue')) {
+                $ledgerQualityIssues = Db::name('ledger_quality_issue')->alias('qi')
+                    ->join('__CUSTOMER_LEDGER__ l', 'qi.ledger_id = l.ledger_id')
+                    ->where('l.handler_user_id', $userId)
+                    ->where('qi.status', PerformanceService::LEDGER_Q_CONFIRMED)
+                    ->where('qi.confirm_time', '>=', $qStart)->where('qi.confirm_time', '<=', $qEnd)
+                    ->field('qi.issue_id, qi.ledger_id, qi.issue_type, qi.issue_desc, qi.evidence, qi.confirm_time, qi.confirmer_user_id')
+                    ->select();
+                foreach ($ledgerQualityIssues as $lm) {
+                    $sourceType = 'ledger_quality_confirmed';
+                    $sourceId = 'issue:' . (int)$lm['issue_id'];
+                    $existFact = Db::name('performance_fact')->where(['source_type' => $sourceType, 'source_id' => $sourceId])->find();
+                    if ($existFact) continue;
+                    Db::name('performance_fact')->insertGetId([
+                        'perf_id' => $perfId, 'user_id' => $userId, 'period' => $period,
+                        'dimension' => 'quality', 'direction' => PerformanceService::DIR_NEGATIVE,
+                        'fact_type' => 'ledger',
+                        'title' => '台账质量问题：' . (string)$lm['issue_type'],
+                        'source_type' => $sourceType, 'source_id' => $sourceId,
+                        'occurred_time' => (int)$lm['confirm_time'],
+                        'evidence' => 'issue_id=' . (int)$lm['issue_id'] . ' ledger_id=' . (int)$lm['ledger_id'] . ' confirmer_user_id=' . (int)$lm['confirmer_user_id'] . ' desc=' . (string)$lm['issue_desc'] . ' evidence=' . (string)$lm['evidence'],
+                        'status' => PerformanceService::FACT_PENDING,
+                        'submit_user_id' => (int)$userInfo['id'],
+                        'create_time' => $now, 'update_time' => $now,
+                    ]);
+                    $ledgerInserted++;
+                }
+            }
+        } catch (\Exception $e) {}
         $factsSummary['ledger_quality_inserted'] = $ledgerInserted;
         $factsSummary['ledger_quality_total'] = count($ledgerQualityIssues);
 
-        // 6) 项目实施/外包结果/项目任务结果
-        $projectInserted = $this->aggregateProjectFacts($perfId, $userId, $period, $qStart, $qEnd, $userInfo['id'], $now);
-        $factsSummary['project_result_inserted'] = $projectInserted;
+        // 6) 项目绩效（里程碑/贡献）：复用统一 ProjectPerformanceService
+        $projStats = $this->aggregateProjectFacts($perfId, $userId, $period, $qStart, $qEnd, $userInfo['id'], $now);
+        $factsSummary['project_scanned'] = $projStats['scanned'];
+        $factsSummary['project_inserted'] = $projStats['inserted'];
+        $factsSummary['project_updated'] = $projStats['updated'];
+        $factsSummary['project_skipped'] = $projStats['skipped'];
+        $factsSummary['project_conflicts'] = $projStats['conflicts'];
+        $factsSummary['project_errors'] = $projStats['errors'];
+        $factsSummary['outsource_skipped_with_reason'] = 'outsource_project 归集条件不具备，已跳过';
+        // 新测试流程 reviewer_user_id=0 时不生成质量绩效，返回真实跳过数量。
+        $skippedUnreviewed = 0;
+        try {
+            if ($this->tableExists('5kcrm_task_test_ext')) {
+                $skippedUnreviewed = (int)Db::name('task_test_ext')
+                    ->where('tester_user_id', $userId)
+                    ->where('reviewer_user_id', 0)
+                    ->where('review_status', \app\work\logic\WorkflowService::REVIEW_PENDING)
+                    ->where('create_time', '>=', $qStart)->where('create_time', '<=', $qEnd)
+                    ->count();
+            }
+        } catch (\Exception $e) {}
+        $factsSummary['test_skipped_unreviewed'] = $skippedUnreviewed;
 
+        // errors 非空时不得为 success 提示
+        $hasErrors = !empty($projStats['errors']);
         return resultArray(['data' => [
             'perf_id' => $perfId, 'period' => $period,
             'facts' => $factsSummary,
-            'note' => '已幂等写入 performance_fact；台账质量问题仅已确认状态进入绩效；奖励使用真实结算时间；W/R/K 含初始/最终/调整；项目实施/外包结果已归集',
+            'note' => $hasErrors ? '归集完成但存在错误，请查看 errors 字段' : '已幂等写入 performance_fact；项目绩效（里程碑/贡献）经统一服务归集为待审核事实；outsource_project 不具备归集条件已跳过',
         ]]);
     }
 
@@ -870,11 +911,11 @@ class Performance extends ApiCommon
         $oppositeType = $isCompliant ? 'test_non_compliant' : 'test_compliant';
         $sourceId = 'test:' . (int)$tr['ext_id'];
         // 幂等：同类型+同source_id已存在则跳过
-        $existFact = Db::name('performance_fact')->where(['source_type' => $sourceType, 'source_id' => $sourceId, 'period' => $period])->find();
+        $existFact = Db::name('performance_fact')->where(['source_type' => $sourceType, 'source_id' => $sourceId])->find();
         if ($existFact) return false;
         // 清理同一 ext_id 的旧对立事实（如先不合格后合格，删除旧的不合格事实）
         Db::name('performance_fact')
-            ->where(['source_type' => $oppositeType, 'source_id' => $sourceId, 'period' => $period])
+            ->where(['source_type' => $oppositeType, 'source_id' => $sourceId])
             ->delete();
         Db::name('performance_fact')->insertGetId([
             'perf_id' => $perfId, 'user_id' => $userId, 'period' => $period,
@@ -906,57 +947,28 @@ class Performance extends ApiCommon
     private function aggregateWrkFacts($perfId, $userId, $period, $qStart, $qEnd, $submitterUserId, $now)
     {
         $inserted = 0;
-        // W/R/K 调整记录（task_wrk_log）
-        $wrkLogs = Db::name('task_wrk_log')->alias('wl')
-            ->join('__TASK__ t', 'wl.task_id = t.task_id')
-            ->where('t.main_user_id', $userId)
-            ->where('wl.create_time', '>=', $qStart)->where('wl.create_time', '<=', $qEnd)
-            ->field('wl.log_id, wl.task_id, wl.field_name, wl.old_value, wl.new_value, wl.reason, wl.user_id AS op_user_id, wl.create_time')
-            ->select();
-        foreach ($wrkLogs as $wl) {
-            $sourceType = 'wrk_adjust';
-            $sourceId = 'wrk_log:' . (int)$wl['log_id'];
-            $existFact = Db::name('performance_fact')->where(['source_type' => $sourceType, 'source_id' => $sourceId, 'period' => $period])->find();
-            if ($existFact) continue;
-            // 空值不解释为默认等级：如果 new_value 为空，跳过本条事实
-            if (trim((string)$wl['new_value']) === '') continue;
-            Db::name('performance_fact')->insertGetId([
-                'perf_id' => $perfId, 'user_id' => $userId, 'period' => $period,
-                'dimension' => 'task', 'direction' => PerformanceService::DIR_POSITIVE,
-                'fact_type' => 'task',
-                'title' => 'W/R/K 调整：' . (string)$wl['field_name'] . ' ' . (string)$wl['old_value'] . ' -> ' . (string)$wl['new_value'],
-                'source_type' => $sourceType, 'source_id' => $sourceId,
-                'occurred_time' => (int)$wl['create_time'],
-                'evidence' => 'task_id=' . (int)$wl['task_id'] . ' field=' . (string)$wl['field_name'] . ' old=' . (string)$wl['old_value'] . ' new=' . (string)$wl['new_value'] . ' reason=' . (string)$wl['reason'] . ' op_user_id=' . (int)$wl['op_user_id'],
-                'status' => PerformanceService::FACT_PENDING,
-                'submit_user_id' => (int)$submitterUserId,
-                'create_time' => $now, 'update_time' => $now,
-            ]);
-            $inserted++;
-        }
-        // W/R/K 初始值和最终值（task_workflow.update_time 落入本季度的 init/final 写入）
-        $wfRows = Db::name('task_workflow')->alias('w')
-            ->join('__TASK__ t', 'w.task_id = t.task_id')
-            ->where('t.main_user_id', $userId)
-            ->where('w.update_time', '>=', $qStart)->where('w.update_time', '<=', $qEnd)
-            ->field('w.task_id, w.init_w, w.init_r, w.init_k, w.final_w, w.final_r, w.final_k, w.update_time, w.update_user_id')
-            ->select();
-        foreach ($wfRows as $wf) {
-            foreach (['init_w','init_r','init_k','final_w','final_r','final_k'] as $field) {
-                $val = trim((string)($wf[$field] ?? ''));
-                if ($val === '') continue; // 空值不解释为默认等级
-                $sourceType = 'wrk_value';
-                $sourceId = 'wrk_value:' . (int)$wf['task_id'] . ':' . $field;
-                $existFact = Db::name('performance_fact')->where(['source_type' => $sourceType, 'source_id' => $sourceId, 'period' => $period])->find();
+        // W/R/K 调整记录（task_wrk_log）--表或列不存在时跳过，不报错
+        if ($this->tableExists('5kcrm_task_wrk_log') && $this->hasColumn('5kcrm_task_wrk_log', 'log_id')) {
+            $wrkLogs = Db::name('task_wrk_log')->alias('wl')
+                ->join('__TASK__ t', 'wl.task_id = t.task_id')
+                ->where('t.main_user_id', $userId)
+                ->where('wl.create_time', '>=', $qStart)->where('wl.create_time', '<=', $qEnd)
+                ->field('wl.log_id, wl.task_id, wl.field_name, wl.old_value, wl.new_value, wl.reason, wl.user_id AS op_user_id, wl.create_time')
+                ->select();
+            foreach ($wrkLogs as $wl) {
+                $sourceType = 'wrk_adjust';
+                $sourceId = 'wrk_log:' . (int)$wl['log_id'];
+                $existFact = Db::name('performance_fact')->where(['source_type' => $sourceType, 'source_id' => $sourceId])->find();
                 if ($existFact) continue;
+                if (trim((string)$wl['new_value']) === '') continue;
                 Db::name('performance_fact')->insertGetId([
                     'perf_id' => $perfId, 'user_id' => $userId, 'period' => $period,
                     'dimension' => 'task', 'direction' => PerformanceService::DIR_POSITIVE,
                     'fact_type' => 'task',
-                    'title' => 'W/R/K ' . $field . '=' . $val,
+                    'title' => 'W/R/K 调整：' . (string)$wl['field_name'] . ' ' . (string)$wl['old_value'] . ' -> ' . (string)$wl['new_value'],
                     'source_type' => $sourceType, 'source_id' => $sourceId,
-                    'occurred_time' => (int)$wf['update_time'],
-                    'evidence' => 'task_id=' . (int)$wf['task_id'] . ' field=' . $field . ' value=' . $val . ' op_user_id=' . (int)$wf['update_user_id'],
+                    'occurred_time' => (int)$wl['create_time'],
+                    'evidence' => 'task_id=' . (int)$wl['task_id'] . ' field=' . (string)$wl['field_name'] . ' old=' . (string)$wl['old_value'] . ' new=' . (string)$wl['new_value'] . ' reason=' . (string)$wl['reason'] . ' op_user_id=' . (int)$wl['op_user_id'],
                     'status' => PerformanceService::FACT_PENDING,
                     'submit_user_id' => (int)$submitterUserId,
                     'create_time' => $now, 'update_time' => $now,
@@ -964,80 +976,100 @@ class Performance extends ApiCommon
                 $inserted++;
             }
         }
+        // W/R/K 初始值和最终值（task_workflow.update_time 落入本季度的 init/final 写入）
+        if ($this->tableExists('5kcrm_task_workflow')) {
+            try {
+                $wfRows = Db::name('task_workflow')->alias('w')
+                    ->join('__TASK__ t', 'w.task_id = t.task_id')
+                    ->where('t.main_user_id', $userId)
+                    ->where('w.update_time', '>=', $qStart)->where('w.update_time', '<=', $qEnd)
+                    ->field('w.task_id, w.init_w, w.init_r, w.init_k, w.final_w, w.final_r, w.final_k, w.update_time, w.update_user_id')
+                    ->select();
+                foreach ($wfRows as $wf) {
+                    foreach (['init_w','init_r','init_k','final_w','final_r','final_k'] as $field) {
+                        $val = trim((string)($wf[$field] ?? ''));
+                        if ($val === '') continue;
+                        $sourceType = 'wrk_value';
+                        $sourceId = 'wrk_value:' . (int)$wf['task_id'] . ':' . $field;
+                        $existFact = Db::name('performance_fact')->where(['source_type' => $sourceType, 'source_id' => $sourceId])->find();
+                        if ($existFact) continue;
+                        Db::name('performance_fact')->insertGetId([
+                            'perf_id' => $perfId, 'user_id' => $userId, 'period' => $period,
+                            'dimension' => 'task', 'direction' => PerformanceService::DIR_POSITIVE,
+                            'fact_type' => 'task',
+                            'title' => 'W/R/K ' . $field . '=' . $val,
+                            'source_type' => $sourceType, 'source_id' => $sourceId,
+                            'occurred_time' => (int)$wf['update_time'],
+                            'evidence' => 'task_id=' . (int)$wf['task_id'] . ' field=' . $field . ' value=' . $val . ' op_user_id=' . (int)$wf['update_user_id'],
+                            'status' => PerformanceService::FACT_PENDING,
+                            'submit_user_id' => (int)$submitterUserId,
+                            'create_time' => $now, 'update_time' => $now,
+                        ]);
+                        $inserted++;
+                    }
+                }
+            } catch (\Exception $e) {}
+        }
         return $inserted;
     }
 
     /**
-     * 项目结果归集：自有产品实施、外包项目、项目任务结果。
+     * 项目绩效归集：复用统一 ProjectPerformanceService，归集 project_milestone / project_contribution。
+     * 返回完整统计 ['scanned','inserted','updated','skipped','conflicts','errors']。
+     * outsource_project 不具备归集条件，明确跳过（不猜测、不引用不存在的字段）。
      */
     private function aggregateProjectFacts($perfId, $userId, $period, $qStart, $qEnd, $submitterUserId, $now)
     {
-        $inserted = 0;
-        // 自有产品实施结果（project_implementation）
-        if ($this->tableExists('5kcrm_project_implementation')) {
-            try {
-                $implTimeCol = $this->hasColumn('5kcrm_project_implementation', 'delivery_time') ? 'delivery_time' : 'update_time';
-                $implRows = Db::name('project_implementation')->alias('pi')
-                    ->where('pi.main_user_id', $userId)
-                    ->where('pi.implement_result', '<>', '')
-                    ->where('pi.' . $implTimeCol, '>=', $qStart)->where('pi.' . $implTimeCol, '<=', $qEnd)
-                    ->field('pi.impl_id, pi.project_ref, pi.implement_result, pi.implement_level, pi.' . $implTimeCol . ' AS result_time')
-                    ->select();
-                foreach ($implRows as $impl) {
-                    $sourceType = 'impl_result';
-                    $sourceId = 'impl:' . (int)$impl['impl_id'];
-                    $existFact = Db::name('performance_fact')->where(['source_type' => $sourceType, 'source_id' => $sourceId, 'period' => $period])->find();
-                    if ($existFact) continue;
-                    $direction = $impl['implement_result'] === '待改进' ? PerformanceService::DIR_NEGATIVE : PerformanceService::DIR_POSITIVE;
-                    Db::name('performance_fact')->insertGetId([
-                        'perf_id' => $perfId, 'user_id' => $userId, 'period' => $period,
-                        'dimension' => 'task', 'direction' => $direction,
-                        'fact_type' => 'implementation',
-                        'title' => '自有产品实施：' . (string)$impl['implement_result'] . '（等级：' . (string)$impl['implement_level'] . '）',
-                        'source_type' => $sourceType, 'source_id' => $sourceId,
-                        'occurred_time' => (int)$impl['result_time'],
-                        'evidence' => 'impl_id=' . (int)$impl['impl_id'] . ' project_ref=' . (string)$impl['project_ref'] . ' result=' . (string)$impl['implement_result'] . ' level=' . (string)$impl['implement_level'],
-                        'status' => PerformanceService::FACT_PENDING,
-                        'submit_user_id' => (int)$submitterUserId,
-                        'create_time' => $now, 'update_time' => $now,
-                    ]);
-                    $inserted++;
-                }
-            } catch (\Exception $e) {}
+        $svc = new \app\work\logic\ProjectPerformanceService();
+        $scanned = 0; $inserted = 0; $updated = 0; $skipped = 0; $conflicts = 0; $errors = [];
+
+        // 已完成里程碑（负责人=userId，actual_time 落入季度）
+        // 迁移未执行时 responsible_user_id 列不存在，自动降级跳过该条件
+        $hasRespCol = \app\work\logic\ProjectService::columnExists('work_milestone', 'responsible_user_id');
+        $msQuery = Db::name('work_milestone')
+            ->where('status', \app\work\logic\ProjectService::MS_STATUS_DONE)
+            ->where('actual_time', '>=', $qStart)->where('actual_time', '<=', $qEnd);
+        if ($hasRespCol) {
+            $msQuery->where('responsible_user_id', $userId);
         }
-        // 外包项目结果（outsource_project）
-        if ($this->tableExists('5kcrm_outsource_project')) {
-            try {
-                $outTimeCol = $this->hasColumn('5kcrm_outsource_project', 'delivery_time') ? 'delivery_time' : 'update_time';
-                $outRows = Db::name('outsource_project')->alias('op')
-                    ->where('op.main_user_id', $userId)
-                    ->where('op.delivery_result', '<>', '')
-                    ->where('op.' . $outTimeCol, '>=', $qStart)->where('op.' . $outTimeCol, '<=', $qEnd)
-                    ->field('op.outsource_id, op.project_ref, op.delivery_result, op.' . $outTimeCol . ' AS result_time')
-                    ->select();
-                foreach ($outRows as $out) {
-                    $sourceType = 'outsource_result';
-                    $sourceId = 'outsource:' . (int)$out['outsource_id'];
-                    $existFact = Db::name('performance_fact')->where(['source_type' => $sourceType, 'source_id' => $sourceId, 'period' => $period])->find();
-                    if ($existFact) continue;
-                    $direction = $out['delivery_result'] === '待改进' ? PerformanceService::DIR_NEGATIVE : PerformanceService::DIR_POSITIVE;
-                    Db::name('performance_fact')->insertGetId([
-                        'perf_id' => $perfId, 'user_id' => $userId, 'period' => $period,
-                        'dimension' => 'task', 'direction' => $direction,
-                        'fact_type' => 'outsource',
-                        'title' => '外包项目：' . (string)$out['delivery_result'],
-                        'source_type' => $sourceType, 'source_id' => $sourceId,
-                        'occurred_time' => (int)$out['result_time'],
-                        'evidence' => 'outsource_id=' . (int)$out['outsource_id'] . ' project_ref=' . (string)$out['project_ref'] . ' result=' . (string)$out['delivery_result'],
-                        'status' => PerformanceService::FACT_PENDING,
-                        'submit_user_id' => (int)$submitterUserId,
-                        'create_time' => $now, 'update_time' => $now,
-                    ]);
-                    $inserted++;
-                }
-            } catch (\Exception $e) {}
+        $msRows = $msQuery->field('milestone_id')->select();
+        foreach ($msRows as $mr) {
+            $scanned++;
+            $r = $svc->syncMilestoneAtomic((int)$mr['milestone_id'], $submitterUserId);
+            if ($r['action'] === 'inserted') $inserted++;
+            elseif ($r['action'] === 'updated') $updated++;
+            elseif ($r['action'] === 'excluded' || $r['action'] === 'skipped' || $r['action'] === 'rejected') $skipped++;
+            elseif ($r['action'] === 'conflict') { $skipped++; }
+            elseif ($r['action'] === 'error') { $conflicts++; if ($r['error'] !== '') $errors[] = ['source' => 'milestone:' . (int)$mr['milestone_id'], 'error' => $r['error']]; }
         }
-        return $inserted;
+
+        // 已确认贡献（贡献人=userId，confirm_time 或 end_time 落入季度）
+        // 迁移未执行时 status/confirm_time 列不存在，自动降级
+        $hasStatusCol = \app\work\logic\ProjectService::columnExists('work_member_contribution', 'status');
+        $hasConfirmCol = \app\work\logic\ProjectService::columnExists('work_member_contribution', 'confirm_time');
+        $ctQuery = Db::name('work_member_contribution')->where('user_id', $userId);
+        if ($hasStatusCol) {
+            $ctQuery->where('status', \app\work\logic\ProjectService::CONTRIB_CONFIRMED);
+        }
+        if ($hasConfirmCol) {
+            $ctQuery->where(function ($q) use ($qStart, $qEnd) {
+                $q->whereBetween('confirm_time', [$qStart, $qEnd])->whereOr('end_time', 'between', [$qStart, $qEnd]);
+            });
+        } else {
+            $ctQuery->whereBetween('end_time', [$qStart, $qEnd]);
+        }
+        $ctRows = $ctQuery->field('contribution_id')->select();
+        foreach ($ctRows as $cr) {
+            $scanned++;
+            $r = $svc->syncContributionAtomic((int)$cr['contribution_id'], $submitterUserId);
+            if ($r['action'] === 'inserted') $inserted++;
+            elseif ($r['action'] === 'updated') $updated++;
+            elseif ($r['action'] === 'excluded' || $r['action'] === 'skipped' || $r['action'] === 'rejected') $skipped++;
+            elseif ($r['action'] === 'conflict') { $skipped++; }
+            elseif ($r['action'] === 'error') { $conflicts++; if ($r['error'] !== '') $errors[] = ['source' => 'contribution:' . (int)$cr['contribution_id'], 'error' => $r['error']]; }
+        }
+
+        return ['scanned' => $scanned, 'inserted' => $inserted, 'updated' => $updated, 'skipped' => $skipped, 'conflicts' => $conflicts, 'errors' => $errors];
     }
 
     /**
@@ -1068,20 +1100,58 @@ class Performance extends ApiCommon
         }
 
         $now = time();
-        $id = Db::name('performance_fact')->insertGetId([
+        // 手工事实幂等：提供 idempotency_key 时 source_id 只由 user_id + key 的稳定哈希构成，
+        // 同一 key 重试返回原 fact_id；相同 key 但请求内容不同返回幂等冲突。
+        // 未提供 key 时使用可靠唯一 ID，但不宣称支持请求重试幂等。
+        $idemKey = trim((string)($param['idempotency_key'] ?? ''));
+        $occurredTs = strtotime($occurredTime) ?: $now;
+        $manualDimension = trim((string)($param['dimension'] ?? 'task'));
+        $manualEvidence = $evidence . ' | ref: ' . $relatedRef;
+        if ($idemKey !== '') {
+            $manualSourceId = PerformanceService::manualSourceId($userId, $idemKey);
+            // 幂等重试：同 source_id 已存在则返回原 fact_id
+            $existFact = Db::name('performance_fact')->where(['source_type' => 'manual', 'source_id' => $manualSourceId])->find();
+            if ($existFact) {
+                // 检查所有业务内容是否一致；相同 key 不允许代表另一条事实。
+                $candidate = [
+                    'user_id' => $userId, 'period' => $period, 'dimension' => $manualDimension,
+                    'direction' => $direction, 'fact_type' => $factType, 'title' => $title,
+                    'occurred_time' => $occurredTs, 'evidence' => $manualEvidence,
+                ];
+                if (PerformanceService::sameManualPayload($existFact, $candidate)) {
+                    return resultArray(['data' => ['fact_id' => (int)$existFact['fact_id'], 'note' => '幂等重试，返回原事实']]);
+                }
+                return resultArray(['error' => '幂等冲突：相同 idempotency_key 但请求内容不同']);
+            }
+        } else {
+            $manualSourceId = 'manual:' . $userId . ':' . bin2hex(random_bytes(16));
+        }
+        $manualRow = [
             'perf_id' => 0, 'user_id' => $userId, 'period' => $period,
-            'dimension' => trim((string)($param['dimension'] ?? 'task')),
+            'dimension' => $manualDimension,
             'direction' => $direction,
             'fact_type' => $factType,
             'title' => $title,
             'source_type' => 'manual',
-            'source_id' => 'manual:' . $userId . ':' . $now,
-            'occurred_time' => strtotime($occurredTime) ?: $now,
-            'evidence' => $evidence . ' | ref: ' . $relatedRef,
+            'source_id' => $manualSourceId,
+            'occurred_time' => $occurredTs,
+            'evidence' => $manualEvidence,
             'status' => PerformanceService::FACT_PENDING,
             'submit_user_id' => (int)$userInfo['id'],
             'create_time' => $now, 'update_time' => $now,
-        ]);
+        ];
+        try {
+            $id = Db::name('performance_fact')->insertGetId($manualRow);
+        } catch (\Exception $e) {
+            $msg = strtolower((string)$e->getMessage());
+            $isDuplicate = strpos($msg, 'duplicate entry') !== false || strpos($msg, 'error 1062') !== false || strpos($msg, '[1062]') !== false;
+            if (!$isDuplicate || $idemKey === '') throw $e;
+            $existFact = Db::name('performance_fact')->where(['source_type' => 'manual', 'source_id' => $manualSourceId])->find();
+            if (!$existFact) throw $e;
+            $same = PerformanceService::sameManualPayload($existFact, $manualRow);
+            if (!$same) return resultArray(['error' => '幂等冲突：相同 idempotency_key 但请求内容不同']);
+            $id = (int)$existFact['fact_id'];
+        }
         return resultArray(['data' => ['fact_id' => $id, 'note' => '事实已提交，待审核；不自动扣款']]);
     }
 
@@ -1153,12 +1223,12 @@ class Performance extends ApiCommon
         }
         $fact = Db::name('performance_fact')->where(['fact_id' => $factId])->find();
         if (!$fact) return resultArray(['error' => '事实不存在']);
+        // 本人回避：不能审核自己的绩效事实（user_id 是被考核人）
         if ((int)$fact['user_id'] === (int)$userInfo['id']) {
             return resultArray(['error' => '本人回避：不能审核自己的事实']);
         }
-        if ((int)$fact['submit_user_id'] === (int)$userInfo['id']) {
-            return resultArray(['error' => '提交人回避：不能审核自己提交的事实']);
-        }
+        // 提交人回避仅在被考核人=提交人时生效（即自评场景）；管理员为他人补录后可审核
+        // 不再阻止提交人为他人补录后审核
         $newStatus = $decision === 'approve' ? PerformanceService::FACT_APPROVED : PerformanceService::FACT_REJECTED;
         Db::name('performance_fact')->where(['fact_id' => $factId])->update([
             'status' => $newStatus, 'reviewer_user_id' => (int)$userInfo['id'],

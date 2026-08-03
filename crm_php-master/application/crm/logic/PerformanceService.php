@@ -48,6 +48,21 @@ class PerformanceService
     const DIR_POSITIVE = '正向';
     const DIR_NEGATIVE = '负向';
 
+    /** 手工事实稳定幂等来源；不包含请求时间。 */
+    public static function manualSourceId($userId, $idempotencyKey)
+    {
+        return 'manual:' . (int)$userId . ':' . md5((int)$userId . ':' . (string)$idempotencyKey);
+    }
+
+    /** 比较幂等键对应事实的全部业务载荷。 */
+    public static function sameManualPayload(array $existing, array $candidate)
+    {
+        foreach (['user_id', 'period', 'dimension', 'direction', 'fact_type', 'title', 'occurred_time', 'evidence'] as $field) {
+            if ((string)($existing[$field] ?? '') !== (string)($candidate[$field] ?? '')) return false;
+        }
+        return true;
+    }
+
     /** 台账质量问题状态（中文枚举） */
     const LEDGER_Q_PENDING  = '待确认';
     const LEDGER_Q_CONFIRMED = '已确认';
@@ -318,6 +333,8 @@ class PerformanceService
             'ledger_quality_confirmed'=> '台账质量问题',
             'impl_result'             => '产品实施结果',
             'outsource_result'        => '外包项目结果',
+            'project_milestone'       => '项目里程碑',
+            'project_contribution'    => '项目贡献',
             'manual'                  => '人工补录',
             'responsibility_case'     => '责任认定',
         ];
@@ -395,9 +412,38 @@ class PerformanceService
             }
         }
         if ($sourceType === 'manual') {
-            return ['source_name' => '人工补录', 'source_module' => '人工补录', 'source_ref' => ''];
+            return ['source_name' => '人工补录', 'source_module' => '人工补录', 'source_ref' => '', 'work_id' => 0, 'source_route' => '', 'source_anchor' => ''];
         }
-        return ['source_name' => $label, 'source_module' => $label, 'source_ref' => $sourceId];
+        if ($sourceType === 'project_milestone') {
+            // sourceId: milestone:{id}
+            if (preg_match('/milestone:(\d+)/', $sourceId, $m)) {
+                $ms = Db::name('work_milestone')->where('milestone_id', (int)$m[1])->find();
+                if ($ms) {
+                    $workId = (int)$ms['work_id'];
+                    $respName = (string)Db::name('admin_user')->where('id', (int)($ms['responsible_user_id'] ?? 0))->value('realname');
+                    $projName = (string)Db::name('work')->where('work_id', $workId)->value('name');
+                    $route = '/project-list/project/' . $workId . '?tab=project-implementation&section=milestone&source_id=' . $m[1];
+                    return ['source_name' => $projName . ' / ' . (string)$ms['name'] . ' / ' . $respName, 'source_module' => '项目里程碑', 'source_ref' => 'milestone_id=' . $m[1], 'work_id' => $workId, 'source_route' => $route, 'source_anchor' => 'milestone-' . $m[1]];
+                }
+                return ['source_name' => '里程碑#' . $m[1] . '（已不存在）', 'source_module' => '项目里程碑', 'source_ref' => 'milestone_id=' . $m[1], 'work_id' => 0, 'source_route' => '', 'source_anchor' => ''];
+            }
+        }
+        if ($sourceType === 'project_contribution') {
+            // sourceId: contribution:{id}
+            if (preg_match('/contribution:(\d+)/', $sourceId, $m)) {
+                $ct = Db::name('work_member_contribution')->where('contribution_id', (int)$m[1])->find();
+                if ($ct) {
+                    $workId = (int)$ct['work_id'];
+                    $userName = (string)Db::name('admin_user')->where('id', (int)($ct['user_id'] ?? 0))->value('realname');
+                    $projName = (string)Db::name('work')->where('work_id', $workId)->value('name');
+                    $route = '/project-list/project/' . $workId . '?tab=project-implementation&section=contribution&source_id=' . $m[1];
+                    $dateRange = date('Y-m-d', (int)($ct['start_time'] ?? 0)) . '~' . date('Y-m-d', (int)($ct['end_time'] ?? 0));
+                    return ['source_name' => $projName . ' / ' . $userName . ' / ' . (string)($ct['contribution_role'] ?? '') . ' / ' . (string)($ct['on_site_days'] ?? '') . '人日 / ' . $dateRange, 'source_module' => '项目贡献', 'source_ref' => 'contribution_id=' . $m[1], 'work_id' => $workId, 'source_route' => $route, 'source_anchor' => 'contribution-' . $m[1]];
+                }
+                return ['source_name' => '贡献#' . $m[1] . '（已不存在）', 'source_module' => '项目贡献', 'source_ref' => 'contribution_id=' . $m[1], 'work_id' => 0, 'source_route' => '', 'source_anchor' => ''];
+            }
+        }
+        return ['source_name' => $label, 'source_module' => $label, 'source_ref' => $sourceId, 'work_id' => 0, 'source_route' => '', 'source_anchor' => ''];
     }
 
     /**
@@ -412,6 +458,9 @@ class PerformanceService
         $row['source_name'] = $source['source_name'];
         $row['source_module'] = $source['source_module'];
         $row['source_ref'] = $source['source_ref'];
+        $row['work_id'] = isset($source['work_id']) ? (int)$source['work_id'] : 0;
+        $row['source_route'] = isset($source['source_route']) ? (string)$source['source_route'] : '';
+        $row['source_anchor'] = isset($source['source_anchor']) ? (string)$source['source_anchor'] : '';
         $row['is_auto'] = ($row['source_type'] ?? '') !== 'manual';
         return $row;
     }

@@ -186,7 +186,7 @@
         <div class="ledger-row ledger-row--wide">
           <span class="ledger-label">问题描述</span>
           <span v-if="!ledgerDetail.description" class="ledger-value">—</span>
-          <div v-else class="ledger-value ledger-rich-text" v-html="ledgerDetail.description"/>
+          <div v-else class="ledger-value ledger-rich-text" v-html="richHtml(ledgerDetail.description)"/>
         </div>
         <div class="ledger-row ledger-row--wide">
           <span class="ledger-label">备注</span>
@@ -220,6 +220,7 @@ import {
 } from '@/api/calendar'
 import { systemUserQueryAuthUserList } from '@/api/calendar'
 import { ledgerReadAPI } from '@/api/ledger/ledger'
+import sanitizeHtml from '@/utils/sanitize'
 import moment from 'moment'
 // import { getMaxIndex } from '@/utils'
 import CreateEvent from './components/CreateEvent'
@@ -391,6 +392,11 @@ export default {
   },
 
   methods: {
+
+    // 富文本净化后再渲染，防止 XSS
+    richHtml(html) {
+      return sanitizeHtml(html)
+    },
 
     /**
      * 娣诲姞鐩戝惉浜嬩欢

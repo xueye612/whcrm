@@ -7,7 +7,7 @@
       <div
         :style="{'font-size': fontSize + 'px'}"
         class="reminder-content"
-        v-html="content"/>
+        v-html="safeContent"/>
       <slot />
       <i
         v-if="closeShow"
@@ -19,6 +19,7 @@
 
 <script type="text/javascript">
 // 警示信息
+import sanitizeHtml from '@/utils/sanitize'
 
 export default {
   name: 'Reminder',
@@ -40,7 +41,12 @@ export default {
   data() {
     return {}
   },
-  computed: {},
+  computed: {
+    // 富文本内容统一净化后再渲染，防止 XSS
+    safeContent() {
+      return sanitizeHtml(this.content)
+    }
+  },
   mounted() {},
   destroyed() {},
   methods: {

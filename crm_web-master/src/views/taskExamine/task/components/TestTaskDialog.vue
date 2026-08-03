@@ -135,11 +135,11 @@
         </el-form-item>
         <el-form-item label="截止时间" prop="deadline">
           <div class="tt-quick-time">
-            <el-button size="mini" :disabled="initForm.is_urgent" @click="setQuickDeadline(1)">1天内</el-button>
-            <el-button size="mini" :disabled="initForm.is_urgent" @click="setQuickDeadline(3)">3天内</el-button>
-            <el-button size="mini" :disabled="initForm.is_urgent" @click="setQuickDeadline(7)">1周内</el-button>
+            <el-button :disabled="initForm.is_urgent" size="mini" @click="setQuickDeadline(1)">1天内</el-button>
+            <el-button :disabled="initForm.is_urgent" size="mini" @click="setQuickDeadline(3)">3天内</el-button>
+            <el-button :disabled="initForm.is_urgent" size="mini" @click="setQuickDeadline(7)">1周内</el-button>
           </div>
-          <el-date-picker v-model="initForm.deadline" type="datetime" placeholder="测试完成截止时间（必须晚于当前时间）" style="width:100%" :disabled="initForm.is_urgent" />
+          <el-date-picker v-model="initForm.deadline" :disabled="initForm.is_urgent" type="datetime" placeholder="测试完成截止时间（必须晚于当前时间）" style="width:100%" />
         </el-form-item>
       </el-form>
       <div v-if="initiateError" class="tt-retry-tip">
@@ -169,7 +169,7 @@
             <el-col :xs="24" :sm="12"><div class="tt-detail-item"><span class="tt-detail-label">截止时间</span><span class="tt-detail-value">{{ formatDateTime(detailData.deadline) }}</span></div></el-col>
             <el-col :xs="24" :sm="12"><div class="tt-detail-item"><span class="tt-detail-label">状态</span><span class="tt-detail-value">{{ detailData.display_status }}</span></div></el-col>
           </el-row>
-          <div class="tt-detail-full"><span class="tt-detail-label">测试内容</span><span class="tt-detail-value" v-html="safeHtml(detailData.test_scope)"></span></div>
+          <div class="tt-detail-full"><span class="tt-detail-label">测试内容</span><span class="tt-detail-value" v-html="safeHtml(detailData.test_scope)" /></div>
           <template v-if="detailData.submit_result">
             <div class="tt-detail-full"><span class="tt-detail-label">测试结果</span><span class="tt-detail-value">{{ detailData.submit_result }}</span></div>
             <div v-if="detailData.submit_issues" class="tt-detail-full"><span class="tt-detail-label">{{ detailData.submit_result === '发现问题' ? '问题说明' : '测试说明' }}</span><span class="tt-detail-value">{{ detailData.submit_issues }}</span></div>
@@ -199,7 +199,7 @@
       custom-class="tt-submit-dialog">
       <el-form ref="submitFormRef" :model="submitForm" :rules="submitRules" label-width="90px" size="small">
         <el-form-item label="测试内容">
-          <div class="tt-readonly-box" v-html="safeHtml(submitRowInfo.test_scope)"></div>
+          <div class="tt-readonly-box" v-html="safeHtml(submitRowInfo.test_scope)" />
         </el-form-item>
         <el-form-item label="测试结果" prop="result">
           <el-radio-group v-model="submitForm.result">
@@ -208,7 +208,7 @@
           </el-radio-group>
         </el-form-item>
         <el-form-item :label="submitForm.result === '发现问题' ? '问题说明' : '测试说明'" prop="issues">
-          <el-input v-model="submitForm.issues" :rows="3" type="textarea" :placeholder="submitForm.result === '发现问题' ? '请填写发现的问题说明（必填）' : '请说明测试了哪些内容及结果（必填）'" />
+          <el-input v-model="submitForm.issues" :rows="3" :placeholder="submitForm.result === '发现问题' ? '请填写发现的问题说明（必填）' : '请说明测试了哪些内容及结果（必填）'" type="textarea" />
         </el-form-item>
       </el-form>
       <span slot="footer" class="tt-dialog-footer">
@@ -276,7 +276,7 @@
               <div v-if="h.issues"><span class="tt-tl-label">{{ h.content === '发现问题' ? '问题说明' : '测试说明' }}：</span>{{ h.issues }}</div>
             </div>
             <div v-else class="tt-timeline-body">
-              <div><span class="tt-tl-label">评定结果：</span>{{ h.review_status_name }}</span></div>
+              <div><span class="tt-tl-label">评定结果：</span>{{ h.review_status_name }}</div>
               <div v-if="h.content"><span class="tt-tl-label">{{ h.review_status === 'compliant' ? '评价说明' : '退回原因' }}：</span>{{ h.content }}</div>
               <div v-if="h.issues"><span class="tt-tl-label">补充要求：</span>{{ h.issues }}</div>
             </div>

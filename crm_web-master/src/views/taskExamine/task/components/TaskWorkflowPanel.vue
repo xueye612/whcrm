@@ -44,7 +44,7 @@
           </div>
           <div class="wp-test-item wp-test-full">
             <span class="wp-label">测试内容</span>
-            <span class="wp-value" v-html="safeHtml(testData.test_scope)"></span>
+            <span class="wp-value" v-html="safeHtml(testData.test_scope)" />
           </div>
           <template v-if="testData.submit_result">
             <div class="wp-test-item wp-test-full">
@@ -153,7 +153,7 @@
         </div>
         <div v-if="data.acceptance_criteria" class="wp-criteria-row">
           <span class="wp-label">任务说明</span>
-          <span class="wp-value" v-html="safeAcceptanceCriteria"></span>
+          <span class="wp-value" v-html="safeAcceptanceCriteria" />
         </div>
 
         <div class="wp-actions">
@@ -291,7 +291,7 @@
           </el-radio-group>
         </el-form-item>
         <el-form-item :label="testSubmitForm.result === '发现问题' ? '问题说明' : '测试说明'" prop="issues">
-          <el-input v-model="testSubmitForm.issues" :rows="3" type="textarea" :placeholder="testSubmitForm.result === '发现问题' ? '请填写发现的问题说明（必填）' : '请说明测试了哪些内容及结果（必填）'" />
+          <el-input v-model="testSubmitForm.issues" :rows="3" :placeholder="testSubmitForm.result === '发现问题' ? '请填写发现的问题说明（必填）' : '请说明测试了哪些内容及结果（必填）'" type="textarea" />
         </el-form-item>
       </el-form>
       <span slot="footer" class="wp-dialog-footer">

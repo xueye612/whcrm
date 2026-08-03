@@ -64,8 +64,19 @@ check(rewardVue.includes('保存配置'), 'reward page has visible save config b
 check(rewardVue.includes('rp-stats'), 'reward page has statistics cards')
 check(rewardVue.includes('rp-pager'), 'reward page has pagination')
 
-// No longer uses ruleSave for manual projects
-check(!rewardVue.includes('rewardRuleSaveAPI'), 'reward page does NOT use ruleSave for manual rules')
+// === Manual rules use rewardManualRuleSaveAPI; stage rules legitimately use rewardRuleSaveAPI ===
+// 注意：不能用 includes('rewardRuleSaveAPI') 判定，因为该串是 rewardManualRuleSaveAPI 的子串。
+// 正确口径：人工规则保存函数 saveRule 必须调用 rewardManualRuleSaveAPI；
+// rewardRuleSaveAPI( 仅允许出现在阶段规则保存（saveStageRule）上下文。
+function extractMethod(src, name) {
+  const m = src.match(new RegExp('(?:async\\s+)?' + name + '\\s*\\([^)]*\\)\\s*\\{([\\s\\S]*?)\\n    (?:async\\s+)?[a-zA-Z_$][\\w$]*\\s*[(:]'))
+  return m ? m[1] : ''
+}
+const saveRuleBody = extractMethod(rewardVue, 'saveRule')
+check(saveRuleBody.indexOf('rewardManualRuleSaveAPI') !== -1, '人工规则保存函数 saveRule 必须调用 rewardManualRuleSaveAPI')
+check(saveRuleBody.indexOf('rewardRuleSaveAPI(') === -1, '人工规则保存不得误用阶段规则接口 rewardRuleSaveAPI')
+const saveStageRuleBody = extractMethod(rewardVue, 'saveStageRule')
+check(saveStageRuleBody.indexOf('rewardRuleSaveAPI(') !== -1, '阶段规则保存使用 rewardRuleSaveAPI')
 check(rewardVue.includes('rewardRuleListAPI'), 'reward page uses ruleListAPI for stage rules sub-tab')
 check(rewardVue.includes('fetchStageRules'), 'reward page fetches stage rules')
 check(rewardVue.includes('ruleSubTab'), 'reward page has sub-tabs for manual/stage rules')

@@ -11,7 +11,7 @@
     </div>
 
     <!-- 归集结果反馈 -->
-    <el-alert v-if="aggResult" :title="aggResult.summary" :closable="true" type="success" show-icon style="margin-bottom:10px" @close="aggResult = null">
+    <el-alert v-if="aggResult" :title="aggResult.summary" :closable="true" :type="aggResult.type" show-icon style="margin-bottom:10px" @close="aggResult = null">
       <div class="pfp-agg-detail">{{ aggResult.detail }}</div>
     </el-alert>
 
@@ -70,9 +70,10 @@
           <el-tag :type="statusType(s.row.status)" size="mini">{{ s.row.status }}</el-tag>
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="130" fixed="right">
+      <el-table-column label="操作" width="180" fixed="right">
         <template slot-scope="s">
           <el-button size="mini" type="text" @click="openDetail(s.row)">详情</el-button>
+          <el-button v-if="s.row.source_route" size="mini" type="text" @click="openSource(s.row)">查看项目</el-button>
           <el-button v-if="s.row.status === '待审核' && allowReview" size="mini" type="text" @click="review(s.row, 'approve')">通过</el-button>
           <el-button v-if="s.row.status === '待审核' && allowReview" size="mini" type="text" style="color:#f56c6c" @click="review(s.row, 'reject')">驳回</el-button>
         </template>
@@ -128,6 +129,7 @@
           <div class="pfp-detail-row"><span class="pfp-d-label">来源模块</span><span class="pfp-d-value">{{ detailData.source_module || detailData.source_type_label }}</span></div>
           <div v-if="detailData.source_name && detailData.source_name !== detailData.source_module" class="pfp-detail-row"><span class="pfp-d-label">来源对象</span><span class="pfp-d-value">{{ detailData.source_name }}</span></div>
           <div v-if="detailData.source_ref" class="pfp-detail-row"><span class="pfp-d-label">来源编号</span><span class="pfp-d-value">{{ detailData.source_ref }}</span></div>
+          <div v-if="detailData.source_route" class="pfp-detail-row"><span class="pfp-d-label">关联项目</span><span class="pfp-d-value"><el-button type="text" @click="openSource(detailData)">查看项目</el-button></span></div>
           <div class="pfp-detail-row"><span class="pfp-d-label">采集方式</span><span class="pfp-d-value">{{ detailData.is_auto ? '系统自动采集' : '人工补录' }}</span></div>
           <div class="pfp-detail-row"><span class="pfp-d-label">提交人</span><span class="pfp-d-value">{{ detailData.submit_user_name || ('#' + detailData.submit_user_id) }}</span></div>
           <div class="pfp-detail-row"><span class="pfp-d-label">发生时间</span><span class="pfp-d-value">{{ formatDate(detailData.occurred_time) }}</span></div>
@@ -147,6 +149,7 @@
 
 <script>
 import { performanceFactListAPI, performanceFactDetailAPI, performanceFactReviewAPI, performanceAutoAggregateAPI, performanceAddFactAPI, performanceDictionaryAPI } from '@/api/crm/performance'
+import { aggregationHasProblems } from '@/utils/projectPerf'
 
 const DIM_LABEL = { duty: '核心职责', task: '重点任务', quality: '测试与质量', collab: '协作' }
 
@@ -204,6 +207,12 @@ export default {
   },
   async created() {
     try {
+      const saved = JSON.parse(sessionStorage.getItem('performance.fact.filter') || 'null')
+      if (saved && Number(saved.userId) === Number(this.userId) && saved.period === this.currentPeriod) {
+        this.filterDimension = saved.dimension || ''
+      }
+    } catch (e) { /* 忽略无效缓存 */ }
+    try {
       // 获取当前用户
       const store = this.$store || (this.$root && this.$root.$store)
       if (store && store.state && store.state.user && store.state.user.userInfo) {
@@ -255,13 +264,19 @@ export default {
         parts.push('奖励 ' + (s.reward_settled_inserted || 0) + '/' + (s.reward_settled_total || 0))
         parts.push('W/R/K ' + (s.wrk_inserted || 0))
         parts.push('台账质量 ' + (s.ledger_quality_inserted || 0) + '/' + (s.ledger_quality_total || 0))
-        parts.push('项目结果 ' + (s.project_result_inserted || 0))
+        parts.push('项目 新增' + (s.project_inserted || 0) + '/更新' + (s.project_updated || 0) + '/跳过' + (s.project_skipped || 0) + '/冲突' + (s.project_conflicts || 0))
+        parts.push('未评定测试跳过 ' + (s.test_skipped_unreviewed || 0))
+        if (s.outsource_skipped_with_reason) parts.push(s.outsource_skipped_with_reason)
         const totalInserted = Object.keys(s).filter(k => k.endsWith('_inserted')).reduce((sum, k) => sum + (s[k] || 0), 0)
+        const projectErrors = Array.isArray(s.project_errors) ? s.project_errors : []
+        const hasErrors = aggregationHasProblems(s)
         this.aggResult = {
-          summary: '归集完成，新增 ' + totalInserted + ' 条绩效事实（重复执行不会重复生成）',
-          detail: parts.join('，')
+          type: hasErrors ? 'warning' : 'success',
+          summary: hasErrors ? '归集完成，但存在冲突或错误' : '归集完成，新增 ' + totalInserted + ' 条绩效事实（重复执行不会重复生成）',
+          detail: parts.join('，') + (projectErrors.length ? '；错误：' + projectErrors.map(x => x.source + ' ' + x.error).join('；') : '')
         }
-        this.$message.success('已归集 ' + totalInserted + ' 条事实')
+        if (hasErrors) this.$message.warning('归集完成，但存在冲突或错误')
+        else this.$message.success('已归集 ' + totalInserted + ' 条事实')
         this.fetch()
       } catch (e) { /* 全局拦截器提示 */ } finally {
         this.aggregating = false
@@ -292,6 +307,16 @@ export default {
         this.detailLoading = false
       }
     },
+    openSource(row) {
+      if (!row || !row.source_route) {
+        this.$message.warning('来源记录已不存在')
+        return
+      }
+      try {
+        sessionStorage.setItem('performance.fact.filter', JSON.stringify({ userId: Number(this.userId), period: this.currentPeriod, dimension: this.filterDimension || '' }))
+      } catch (e) { /* 存储不可用不阻断跳转 */ }
+      this.$router.push(row.source_route)
+    },
     async review(row, decision) {
       try {
         await performanceFactReviewAPI({ fact_id: row.fact_id, decision })
@@ -305,34 +330,69 @@ export default {
 
 <style scoped>
 .perf-fact-panel { padding: 4px 0; }
-.pfp-toolbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
-.pfp-agg-detail { font-size: 12px; color: #606266; margin-top: 4px; }
-/* 维度统计 */
-.pfp-stats { display: flex; gap: 8px; flex-wrap: wrap; }
-.pfp-stat-card { flex: 1; min-width: 100px; background: #f7f8fa; border-radius: 8px; padding: 8px 6px; text-align: center; }
-.pfp-stat-label { font-size: 12px; color: #909399; }
-.pfp-stat-nums { font-size: 16px; margin-top: 2px; }
-.pfp-stat-pos { color: #67c23a; font-weight: 700; }
-.pfp-stat-sep { color: #c0c4cc; margin: 0 2px; }
-.pfp-stat-neg { color: #f56c6c; font-weight: 700; }
+
+/* 操作栏 */
+.pfp-toolbar {
+  display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+  margin-bottom: 12px; padding: 10px 12px;
+  background: #f7f8fa; border-radius: 6px;
+}
+.pfp-toolbar >>> .el-button--small { border-radius: 4px; }
+
+/* 归集反馈 */
+.pfp-agg-detail { font-size: 12px; color: #606266; margin-top: 4px; line-height: 1.6; }
+
+/* 维度统计卡片 */
+.pfp-stats { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
+.pfp-stat-card {
+  flex: 1; min-width: 110px;
+  background: linear-gradient(135deg, #fafbff 0%, #f0f3ff 100%);
+  border: 1px solid #e3e8f5; border-radius: 8px;
+  padding: 10px 8px; text-align: center;
+  transition: box-shadow .2s;
+}
+.pfp-stat-card:hover { box-shadow: 0 2px 8px rgba(64,158,255,.12); }
+.pfp-stat-label { font-size: 12px; color: #606266; font-weight: 500; }
+.pfp-stat-nums { font-size: 20px; margin-top: 4px; font-weight: 700; }
+.pfp-stat-pos { color: #67c23a; }
+.pfp-stat-sep { color: #c0c4cc; margin: 0 3px; font-weight: 400; }
+.pfp-stat-neg { color: #f56c6c; }
 .pfp-stat-pending { font-size: 11px; color: #e6a23c; margin-top: 2px; }
-/* 表格内容 */
-.pfp-title { font-size: 13px; color: #303133; }
-.pfp-type-tag { font-size: 11px; color: #909399; margin-left: 6px; }
-.pfp-source { display: flex; flex-direction: column; }
-.pfp-source-module { font-size: 12px; color: #409eff; }
+
+/* 表格 */
+.perf-fact-panel >>> .el-table { border-radius: 6px; overflow: hidden; }
+.perf-fact-panel >>> .el-table--small td { padding: 6px 0; }
+.pfp-title { font-size: 13px; color: #303133; line-height: 1.4; }
+.pfp-type-tag {
+  font-size: 11px; color: #909399; margin-left: 6px;
+  background: #f4f4f5; border-radius: 3px; padding: 1px 4px;
+}
+.pfp-source { display: flex; flex-direction: column; gap: 2px; }
+.pfp-source-module { font-size: 12px; color: #409eff; font-weight: 500; }
 .pfp-source-name { font-size: 11px; color: #909399; }
-.pfp-empty { text-align: center; padding: 32px; color: #909399; font-size: 13px; }
-/* 详情 */
-.pfp-detail-row { display: flex; gap: 8px; margin-bottom: 8px; }
+.pfp-empty {
+  text-align: center; padding: 40px 16px; color: #909399;
+  font-size: 13px; line-height: 2;
+}
+
+/* 详情弹窗 */
+.pfp-detail-row {
+  display: flex; gap: 8px; margin-bottom: 10px;
+  padding-bottom: 8px; border-bottom: 1px dashed #ebeef5;
+}
+.pfp-detail-row:last-child { border-bottom: none; }
 .pfp-detail-full { width: 100%; }
-.pfp-d-label { min-width: 70px; color: #909399; font-size: 13px; flex-shrink: 0; }
-.pfp-d-value { color: #303133; font-size: 13px; flex: 1; word-break: break-all; }
+.pfp-d-label {
+  min-width: 72px; color: #909399; font-size: 13px;
+  flex-shrink: 0; text-align: right;
+}
+.pfp-d-value { color: #303133; font-size: 13px; flex: 1; word-break: break-all; line-height: 1.5; }
 </style>
 
 <style>
 .pfp-add-dialog .el-dialog__body,
 .pfp-detail-dialog .el-dialog__body { padding: 16px 20px; }
+.pfp-detail-dialog .el-dialog { border-radius: 8px; }
 @media (max-width: 768px) {
   .pfp-add-dialog, .pfp-detail-dialog { width: 95% !important; margin: 0 auto !important; }
   .pfp-stats { flex-direction: column; }

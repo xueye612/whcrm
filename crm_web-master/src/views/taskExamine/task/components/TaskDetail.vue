@@ -310,8 +310,8 @@
                   <div
                     v-if="taskData.description"
                     class="description-content"
-                    v-html="safeDescription"
-                    @click="editTaskDescription"></div>
+                    @click="editTaskDescription"
+                    v-html="safeDescription" />
                   <div
                     v-else
                     class="description-empty">

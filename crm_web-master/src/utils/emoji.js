@@ -1,4 +1,5 @@
 import data from './emoji-data.js'
+import sanitizeHtml from './sanitize'
 let emojiData = {}
 Object.values(data).forEach(item => {
   emojiData = {
@@ -20,11 +21,12 @@ export function emoji(value) {
   Object.keys(emojiData).forEach(item => {
     value = value.replace(new RegExp(item, 'g'), createIcon(item))
   })
-  return value
+  // 表情替换后统一净化，保留注入的 <img>，移除 script/事件属性/危险协议，防止 XSS
+  return sanitizeHtml(value)
 }
 
 function createIcon(item) {
   const value = emojiData[item]
   const path = process.env.NODE_ENV == 'development' ? '../../static/img/emoji/' : './static/img/emoji/'
-  return `<img src=${path}${value} width="16px" height="16px">`
+  return `<img src="${path}${value}" alt="${item}" width="16px" height="16px">`
 }

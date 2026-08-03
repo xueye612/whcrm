@@ -52,6 +52,14 @@ export function contributionDeleteAPI(data) {
   })
 }
 
+export function projectPerformanceResubmitAPI(data) {
+  return request({
+    url: 'work/work/projectPerformanceResubmit',
+    method: 'post',
+    data
+  })
+}
+
 export function knowledgeSaveAPI(data) {
   return request({
     url: 'work/work/knowledgeSave',

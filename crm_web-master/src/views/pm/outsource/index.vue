@@ -1,45 +1,190 @@
 <template>
   <div class="os-page">
     <div class="os-toolbar">
-      <span>项目实施/外包</span>
-      <el-input v-model="workId" size="small" placeholder="项目ID(work_id)" style="width:160px"/>
-      <el-button type="primary" size="small" @click="fetchProfile">读取</el-button>
+      <el-button size="small" icon="el-icon-back" @click="$router.back()">返回</el-button>
+      <span>项目实施 / 外包奖金</span>
+      <el-input v-model="workId" size="small" placeholder="项目ID" style="width:120px" @keyup.enter.native="loadAll"/>
+      <el-button type="primary" size="small" @click="loadAll">读取</el-button>
     </div>
-    <el-form v-if="profile" :model="form" label-width="120px" size="small" style="max-width:760px;margin-top:12px">
-      <el-form-item label="交付等级"><el-select v-model="form.delivery_level" clearable style="width:200px"><el-option v-for="l in dict.delivery_levels" :key="l" :label="l" :value="l"/></el-select></el-form-item>
-      <el-form-item label="到账收入"><el-input-number v-model="form.revenue" :min="0" controls-position="right"/></el-form-item>
-      <el-form-item label="直接成本"><el-input-number v-model="form.direct_cost" :min="0" controls-position="right"/></el-form-item>
-      <el-form-item label="需求基线"><el-input v-model="form.requirement_baseline" :rows="2" type="textarea"/></el-form-item>
-      <el-form-item label="奖金池比例"><span>奖励{{ form.reward_pct }}% / 商务费用{{ form.expense_pct }}%（默认2%/3%，可改）</span></el-form-item>
-      <el-form-item><el-button :loading="saving" type="primary" @click="saveProfile">保存档案(自动算毛利/池)</el-button>
-        <span style="margin-left:12px;color:#909399">毛利={{ margin }} 奖励池={{ pools.reward_pool }} 费用池={{ pools.expense_pool }}</span>
+
+    <!-- 档案 -->
+    <el-form v-if="profile" :model="form" label-width="110px" size="small" class="os-form">
+      <el-row :gutter="12">
+        <el-col :sm="8"><el-form-item label="交付等级"><el-select v-model="form.delivery_level" clearable style="width:100%"><el-option v-for="l in dict.delivery_levels" :key="l" :label="l" :value="l"/></el-select></el-form-item></el-col>
+        <el-col :sm="8"><el-form-item label="到账收入"><el-input-number v-model="form.revenue" :min="0" controls-position="right" style="width:100%"/></el-form-item></el-col>
+        <el-col :sm="8"><el-form-item label="直接成本"><el-input-number v-model="form.direct_cost" :min="0" controls-position="right" style="width:100%"/></el-form-item></el-col>
+      </el-row>
+      <el-form-item><el-button :loading="saving" type="primary" @click="saveProfile">保存档案</el-button>
+        <span class="os-hint">毛利 <b>{{ margin }}</b> · 奖励池 <b>{{ pools.reward_pool }}</b> · 费用池 <b>{{ pools.expense_pool }}</b></span>
       </el-form-item>
     </el-form>
-    <div v-if="profile" style="margin-top:8px">
-      <h4 style="margin:8px 0">实施三级比例分配（默认 技术与项目负责人40/客户成功工程师28/研发负责人25/总经理兼产品负责人5/市场运营专员2，合计≤100，不足不自动分配）</h4>
+
+    <!-- 比例编辑 -->
+    <div v-if="profile" class="os-section">
+      <div class="os-section-title">岗位分配比例 <span class="os-hint">（合计 {{ ratioSum }}% / 100%）</span></div>
       <el-table :data="ratios" size="small" border style="max-width:680px">
-        <el-table-column label="角色"><template slot-scope="s">{{ s.row.role }}</template></el-table-column>
-        <el-table-column label="比例%" width="160"><template slot-scope="s"><el-input-number v-model="s.row.percentage" :min="0" :max="100" controls-position="right" size="mini"/></template></el-table-column>
+        <el-table-column label="岗位角色" prop="role"/>
+        <el-table-column label="分配比例" width="160">
+          <template slot-scope="s"><el-input-number v-model="s.row.percentage" :min="0" :max="100" controls-position="right" size="mini"/></template>
+        </el-table-column>
       </el-table>
-      <div style="margin-top:8px">合计：{{ ratioSum }}% <span v-if="ratioSum>100" style="color:#f56c6c">（超过100%）</span></div>
-      <el-button :loading="distting" type="primary" size="small" style="margin-top:8px" @click="saveDist">保存分配</el-button>
-      <el-button size="small" style="margin-top:8px" @click="fetchDist">读取分配</el-button>
+      <div style="margin-top:8px">
+        <el-button :loading="distting" type="primary" size="small" @click="saveDist">保存并计算分配</el-button>
+        <el-button size="small" @click="fetchDist">重新读取</el-button>
+      </div>
     </div>
+
+    <!-- 已保存的奖金分配结果 -->
+    <div v-if="distResult" class="os-section os-dist-result">
+      <div class="os-section-title">奖金分配明细</div>
+      <el-row :gutter="12" class="os-pool-summary">
+        <el-col :sm="6"><div class="os-pool-card"><div class="os-pool-label">奖励池总额</div><div class="os-pool-value">{{ payoutTotal }}</div></div></el-col>
+        <el-col :sm="6"><div class="os-pool-card"><div class="os-pool-label">已分配</div><div class="os-pool-value os-green">{{ distResult.allocated_pct }}%</div></div></el-col>
+        <el-col :sm="6"><div class="os-pool-card"><div class="os-pool-label">未分配</div><div class="os-pool-value os-orange">{{ distResult.unallocated }}</div></div></el-col>
+        <el-col :sm="6"><div class="os-pool-card"><div class="os-pool-label">发放节奏</div><div class="os-pool-value os-blue">70% 交付 / 30% 验收</div></div></el-col>
+      </el-row>
+      <el-table :data="distResult.rows" size="small" border style="margin-top:10px;max-width:680px">
+        <el-table-column label="岗位角色" prop="role"/>
+        <el-table-column label="分配比例" width="100"><template slot-scope="s">{{ s.row.percentage }}%</template></el-table-column>
+        <el-table-column label="分配金额" width="120"><template slot-scope="s"><b>{{ s.row.amount }}</b></template></el-table-column>
+      </el-table>
+      <div v-if="distResult.payout_rhythm" class="os-payout-rhythm">
+        <span class="os-hint">阶段一（交付 {{ distResult.payout_rhythm.phase1_pct }}%）：</span><b>{{ distResult.payout_rhythm.phase1_deliver }}</b>
+        <span class="os-hint" style="margin-left:16px">阶段二（验收 {{ distResult.payout_rhythm.phase2_pct }}%）：</span><b>{{ distResult.payout_rhythm.phase2_accept }}</b>
+        <span class="os-hint" style="margin-left:16px">{{ distResult.note }}</span>
+      </div>
+    </div>
+
+    <!-- 从数据库读取的已保存分配 -->
+    <div v-if="savedRows.length && !distResult" class="os-section">
+      <div class="os-section-title">已保存的分配记录</div>
+      <el-table :data="savedRows" size="small" border style="max-width:680px">
+        <el-table-column label="岗位角色" prop="role_name"/>
+        <el-table-column label="分配比例" width="100"><template slot-scope="s">{{ s.row.percentage }}%</template></el-table-column>
+        <el-table-column label="分配金额" width="120"><template slot-scope="s"><b>{{ s.row.amount }}</b></template></el-table-column>
+      </el-table>
+    </div>
+
+    <div v-if="!profile && workId" class="os-empty">输入项目 ID 后点击「读取」查看档案与奖金分配</div>
   </div>
 </template>
+
 <script>
 import { outsourceDictionaryAPI, outsourceProjectSaveAPI, outsourceProjectReadAPI, outsourceDistributeSaveAPI, outsourceDistributeReadAPI } from '@/api/work/outsource'
+
 export default {
   name: 'OutsourcePage',
-  data() { return { workId: '', profile: null, dict: { delivery_levels: [], default_distribution: [] }, form: {}, margin: 0, pools: { reward_pool: 0, expense_pool: 0 }, ratios: [], saving: false, distting: false } },
-  computed: { ratioSum() { return this.ratios.reduce((s, r) => s + (Number(r.percentage) || 0), 0) } },
-  async created() { const r = await outsourceDictionaryAPI({}); this.dict = r.data || r; this.ratios = (this.dict.default_distribution || []).map(x => ({ role: x.role, percentage: x.percentage })) },
+  data() {
+    return {
+      workId: '',
+      profile: null,
+      dict: { delivery_levels: [], default_distribution: [] },
+      form: {},
+      margin: 0,
+      pools: { reward_pool: 0, expense_pool: 0 },
+      ratios: [],
+      saving: false,
+      distting: false,
+      distResult: null,
+      savedRows: []
+    }
+  },
+  computed: {
+    ratioSum() { return this.ratios.reduce((s, r) => s + (Number(r.percentage) || 0), 0) },
+    payoutTotal() {
+      if (!this.distResult || !this.distResult.rows) return '0'
+      return this.distResult.rows.reduce((s, r) => s + (Number(r.amount) || 0), 0).toFixed(2)
+    }
+  },
+  async created() {
+    try {
+      const r = await outsourceDictionaryAPI({})
+      this.dict = r.data || r
+      this.ratios = (this.dict.default_distribution || []).map(x => ({ role: x.role, percentage: x.percentage }))
+    } catch (e) { /* ignore */ }
+    // 从项目详情页跳转时自动读取
+    const qid = this.$route && this.$route.query && this.$route.query.work_id
+    if (qid) {
+      this.workId = String(qid)
+      this.loadAll()
+    }
+  },
   methods: {
-    async fetchProfile() { if (!this.workId) return; const r = await outsourceProjectReadAPI({ work_id: Number(this.workId) }); const d = r.data || r; this.profile = d.profile; if (this.profile) { this.form = { delivery_level: this.profile.delivery_level || '', revenue: Number(this.profile.revenue) || 0, direct_cost: Number(this.profile.direct_cost) || 0, requirement_baseline: this.profile.requirement_baseline || '', reward_pct: Number(this.profile.reward_pct) || 2, expense_pct: Number(this.profile.expense_pct) || 3 }; this.margin = this.profile.gross_margin; this.pools = { reward_pool: this.profile.reward_pool, expense_pool: this.profile.expense_pool } } else { this.form = { delivery_level: '', revenue: 0, direct_cost: 0, requirement_baseline: '', reward_pct: 2, expense_pct: 3 }; this.profile = {} } },
-    async saveProfile() { this.saving = true; try { const r = await outsourceProjectSaveAPI(Object.assign({ work_id: Number(this.workId) }, this.form)); const d = r.data || {}; this.margin = d.gross_margin; this.pools = { reward_pool: d.reward_pool, expense_pool: d.expense_pool }; this.$message.success('已保存') } finally { this.saving = false } },
-    async saveDist() { if (this.ratioSum > 100) { this.$message.error('总比例超过100%'); return } this.distting = true; try { const r = await outsourceDistributeSaveAPI({ work_id: Number(this.workId), ratios: JSON.stringify(this.ratios) }); this.$message.success('已保存分配：' + JSON.stringify(r.data)) } finally { this.distting = false } },
-    async fetchDist() { const r = await outsourceDistributeReadAPI({ work_id: Number(this.workId) }); const rows = (r.data && r.data.rows) || []; if (rows.length) this.ratios = rows.map(x => ({ role: x.role_name, percentage: Number(x.percentage) })) }
+    async loadAll() {
+      if (!this.workId) return
+      await this.fetchProfile()
+      await this.fetchDist()
+    },
+    async fetchProfile() {
+      if (!this.workId) return
+      try {
+        const r = await outsourceProjectReadAPI({ work_id: Number(this.workId) })
+        const d = r.data || r
+        this.profile = d.profile
+        if (this.profile) {
+          this.form = {
+            delivery_level: this.profile.delivery_level || '',
+            revenue: Number(this.profile.revenue) || 0,
+            direct_cost: Number(this.profile.direct_cost) || 0,
+            requirement_baseline: this.profile.requirement_baseline || '',
+            reward_pct: Number(this.profile.reward_pct) || 2,
+            expense_pct: Number(this.profile.expense_pct) || 3
+          }
+          this.margin = this.profile.gross_margin
+          this.pools = { reward_pool: this.profile.reward_pool, expense_pool: this.profile.expense_pool }
+        } else {
+          this.form = { delivery_level: '', revenue: 0, direct_cost: 0, requirement_baseline: '', reward_pct: 2, expense_pct: 3 }
+          this.profile = {}
+        }
+      } catch (e) { /* 全局拦截器提示 */ }
+    },
+    async saveProfile() {
+      this.saving = true
+      try {
+        const r = await outsourceProjectSaveAPI(Object.assign({ work_id: Number(this.workId) }, this.form))
+        const d = r.data || {}
+        this.margin = d.gross_margin
+        this.pools = { reward_pool: d.reward_pool, expense_pool: d.expense_pool }
+        this.$message.success('档案已保存')
+      } finally { this.saving = false }
+    },
+    async saveDist() {
+      if (this.ratioSum > 100) { this.$message.error('总比例超过100%'); return }
+      this.distting = true
+      try {
+        const r = await outsourceDistributeSaveAPI({ work_id: Number(this.workId), ratios: JSON.stringify(this.ratios) })
+        this.distResult = r.data || null
+        this.$message.success('奖金分配已保存')
+        await this.fetchDist()
+      } finally { this.distting = false }
+    },
+    async fetchDist() {
+      try {
+        const r = await outsourceDistributeReadAPI({ work_id: Number(this.workId) })
+        const rows = (r.data && r.data.rows) || []
+        this.savedRows = rows
+        if (rows.length) this.ratios = rows.map(x => ({ role: x.role_name, percentage: Number(x.percentage) }))
+      } catch (e) { /* ignore */ }
+    }
   }
 }
 </script>
-<style scoped>.os-page{padding:16px}.os-toolbar{display:flex;gap:8px;align-items:center}</style>
+
+<style scoped>
+.os-page { padding: 16px; max-width: 900px; }
+.os-toolbar { display: flex; gap: 8px; align-items: center; margin-bottom: 12px; }
+.os-form { margin-top: 8px; }
+.os-hint { color: #909399; font-size: 12px; margin-left: 8px; }
+.os-section { margin-top: 16px; padding: 12px; background: #f7f8fa; border-radius: 6px; }
+.os-section-title { font-size: 14px; font-weight: 600; color: #303133; margin-bottom: 8px; }
+.os-green { color: #67c23a; }
+.os-orange { color: #e6a23c; }
+.os-blue { color: #409eff; }
+.os-empty { text-align: center; padding: 40px; color: #909399; }
+.os-dist-result { background: #f0f5ff; border: 1px solid #d4e4ff; }
+.os-pool-summary { margin-bottom: 4px; }
+.os-pool-card { background: #fff; border-radius: 6px; padding: 8px 10px; text-align: center; }
+.os-pool-label { font-size: 12px; color: #909399; }
+.os-pool-value { font-size: 18px; font-weight: 700; margin-top: 2px; }
+.os-payout-rhythm { margin-top: 10px; font-size: 13px; color: #303133; }
+</style>

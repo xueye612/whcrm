@@ -2,6 +2,22 @@
   <div
     v-loading="loading"
     class="attachment">
+    <el-alert
+      :closable="false"
+      class="att-hint"
+      type="info"
+      title="本页汇总当前项目所有任务下的附件；如需上传，请进入具体任务详情后上传。"
+      show-icon/>
+    <!-- 接口失败：明确错误状态与重试入口 -->
+    <div
+      v-if="loadError"
+      class="att-error">
+      <span>{{ loadError }}</span>
+      <el-button
+        type="primary"
+        size="mini"
+        @click="getList(true)">重试</el-button>
+    </div>
     <div class="attachment-body">
       <el-table
         :data="list"
@@ -12,36 +28,51 @@
         header-align="center"
         stripe
         style="width: 100%;border: 1px solid #E6E6E6;">
-        <el-table-column
-          v-for="(item, index) in fieldList"
-          :key="index"
-          :prop="item.prop"
-          :label="item.label"
-          show-overflow-tooltip/>
-        <el-table-column
-          label="操作"
-          width="150">
-          <template slot-scope="scope">
-            <flexbox justify="center">
-              <el-button
-                type="text"
-                @click.native="handleFile('preview', scope)">预览</el-button>
-              <el-button
-                type="text"
-                @click.native="handleFile('edit', scope)">重命名</el-button>
-              <el-button
-                type="text"
-                @click.native="handleFile('delete', scope)">删除</el-button>
-            </flexbox>
-          </template>
-        </el-table-column>
+        <template v-if="list.length">
+          <el-table-column
+            v-for="(item, index) in fieldList"
+            :key="index"
+            :prop="item.prop"
+            :label="item.label"
+            :width="item.width"
+            show-overflow-tooltip/>
+          <el-table-column
+            label="操作"
+            width="150">
+            <template slot-scope="scope">
+              <flexbox justify="center">
+                <el-button
+                  type="text"
+                  title="预览"
+                  @click.native="handleFile('preview', scope)">预览</el-button>
+                <el-button
+                  v-if="canManageFile"
+                  type="text"
+                  title="重命名"
+                  @click.native="handleFile('edit', scope)">重命名</el-button>
+                <el-button
+                  v-if="canManageFile"
+                  type="text"
+                  title="删除"
+                  style="color:#f56c6c"
+                  @click.native="handleFile('delete', scope)">删除</el-button>
+              </flexbox>
+            </template>
+          </el-table-column>
+        </template>
       </el-table>
+      <!-- 空状态 -->
+      <div
+        v-if="!loading && !loadError && !list.length"
+        class="att-empty">
+        暂无附件
+      </div>
     </div>
     <el-dialog
       :append-to-body="true"
       :close-on-click-modal="false"
       :visible.sync="editDialog"
-      title="编辑"
+      title="重命名"
       width="30%">
       <el-form :model="editForm">
         <el-form-item
@@ -85,13 +116,19 @@ import { fileSize } from '@/utils'
 export default {
 
   props: {
-    workId: [Number, String]
+    workId: [Number, String],
+    // 项目权限对象（来自 work/work/read 的 auth），用于控制重命名/删除按钮
+    permission: {
+      type: Object,
+      default: () => ({})
+    }
   },
   data() {
     return {
       firstRequst: true,
       list: [],
       loading: false,
+      loadError: '',
       // 分页
       currentPage: 1,
       pageSize: 15,
@@ -103,10 +140,19 @@ export default {
       /** 重命名 弹窗 */
       editDialog: false,
       /** 编辑信息 */
-      editForm: { name: '', data: {}}
+      editForm: { name: '', data: {}},
+      /** resize 句柄，便于销毁时移除 */
+      resizeHandler: null
     }
   },
-
+  computed: {
+    // 项目附件写入权限：具备「任务删除附件」或项目「管理」权限才允许重命名/删除
+    canManageFile() {
+      const p = this.permission || {}
+      // 与后端 delete/update 实际许可条件完全一致：仅依据 deleteTaskFile
+      return !!p.deleteTaskFile
+    }
+  },
   watch: {
     workId: function() {
       this.currentPage = 1
@@ -116,11 +162,25 @@ export default {
   },
 
   mounted() {
+    // 使用 addEventListener 而非覆盖 window.onresize，避免影响其它监听
+    this.resizeHandler = () => {
+      this.tableHeight = document.documentElement.clientHeight - 250
+    }
+    window.addEventListener('resize', this.resizeHandler)
+
     if (this.firstRequst) {
       this.firstRequst = false
       this.getList(true)
     } else {
       this.getList(false)
+    }
+  },
+
+  beforeDestroy() {
+    // 释放 resize 监听，防止内存泄漏
+    if (this.resizeHandler) {
+      window.removeEventListener('resize', this.resizeHandler)
+      this.resizeHandler = null
     }
   },
 
@@ -130,20 +190,16 @@ export default {
   deactivated() {},
 
   created() {
-    window.onresize = () => {
-      this.tableHeight = document.documentElement.clientHeight - 250
-    }
-
     this.fieldList.push({ prop: 'name', width: '200', label: '附件名称' })
-    this.fieldList.push({ prop: 'size', width: '200', label: '附件大小' })
+    this.fieldList.push({ prop: 'size', width: '120', label: '附件大小' })
     this.fieldList.push({
       prop: 'createName',
-      width: '200',
+      width: '160',
       label: '上传人'
     })
     this.fieldList.push({
       prop: 'create_time',
-      width: '200',
+      width: '180',
       label: '上传时间'
     })
   },
@@ -170,6 +226,7 @@ export default {
      */
     getList(loading) {
       this.loading = loading
+      this.loadError = ''
       workWorkFileListAPI({
         page: this.currentPage,
         limit: this.pageSize,
@@ -185,32 +242,35 @@ export default {
         })
         .catch(() => {
           this.loading = false
+          this.loadError = '附件加载失败，请重试'
         })
     },
 
     /**
      * 通过回调控制表头style
      */
-    headerRowStyle({ row, column, rowIndex, columnIndex }) {
+    headerRowStyle() {
       return { textAlign: 'center' }
     },
 
     /**
      * 通过回调控制style
      */
-    cellStyle({ row, column, rowIndex, columnIndex }) {
+    cellStyle() {
       return { textAlign: 'center' }
     },
 
     /**
-     * 编辑
+     * 编辑（重命名）提交
      */
     confirmEdit() {
       if (this.editForm.name) {
+        // 项目附件重命名：携带 work_id/file_id/save_name，后端核验归属与 deleteTaskFile 权限
         crmFileUpdateAPI({
           file_id: this.editForm.data.row.file_id,
           name: this.editForm.name,
-          save_name: this.editForm.data.row.save_name
+          save_name: this.editForm.data.row.save_name,
+          work_id: this.workId
         })
           .then(res => {
             this.$message.success('编辑成功')
@@ -229,11 +289,11 @@ export default {
       if (type === 'preview') {
         this.$bus.emit('preview-image-bus', {
           index: item.$index,
-          data: this.list.map(function(item) {
+          data: this.list.map(function(mapItem) {
             return {
-              url: item.filePath || item.url || item.file_path,
-              name: item.name,
-              save_name: item.save_name
+              url: mapItem.filePath || mapItem.url || mapItem.file_path,
+              name: mapItem.name,
+              save_name: mapItem.save_name
             }
           })
         })
@@ -244,16 +304,16 @@ export default {
           type: 'warning'
         })
           .then(() => {
+            // 项目附件删除：必须传递正确的 module=work_task + work_id，由后端再次核验归属与权限
             crmFileDeleteAPI({
               file_id: item.row.file_id,
-              module: 'crm_customer',
-              module_id: item.row.file_id,
               save_name: item.row.save_name,
+              module: 'work_task',
               work_id: this.workId
             })
               .then(res => {
                 this.list.splice(item.$index, 1)
-                this.$message.success('操作成功')
+                this.$message.success('删除成功')
               })
               .catch(() => {})
           })
@@ -280,6 +340,25 @@ export default {
     position: relative;
     overflow: hidden;
   }
+}
+
+.att-hint {
+  margin-bottom: 10px;
+}
+
+.att-error {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 16px;
+  color: #f56c6c;
+}
+
+.att-empty {
+  text-align: center;
+  color: #999;
+  padding: 40px 0;
 }
 
 .el-table ::v-deep thead th {

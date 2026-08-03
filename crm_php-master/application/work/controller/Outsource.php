@@ -108,8 +108,27 @@ class Outsource extends ApiCommon
         $row = Db::name('outsource_project')->where(['work_id' => $workId])->find();
         if (!$row) return resultArray(['error' => '请先保存外包项目档案']);
         $pool = (float)$row['reward_pool'];
+
+        // 读取验收结果，应用验收结果系数（优质1.10/合格1.00/待改进0.80）
+        $resultCoeff = 1.00;
+        $acceptanceResult = '';
+        $coeffNote = '';
+        $profile = Db::name('work_profile')->where(['work_id' => $workId])->find();
+        if ($profile && !empty($profile['acceptance_result'])) {
+            $acceptanceResult = trim((string)$profile['acceptance_result']);
+            $coeffMap = ['优质' => 1.10, '合格' => 1.00, '待改进' => 0.80];
+            if (isset($coeffMap[$acceptanceResult])) {
+                $resultCoeff = $coeffMap[$acceptanceResult];
+            }
+        }
+        // 奖金池 × 验收结果系数
+        $adjustedPool = round($pool * $resultCoeff, 2);
+        if ($resultCoeff != 1.00) {
+            $coeffNote = '；验收结果"' . $acceptanceResult . '"系数' . $resultCoeff . '，奖池 ' . $pool . ' → ' . $adjustedPool;
+        }
+
         // P4 70/30 发放节奏：交付阶段(phase1)按比例分配 70%，验收/稳定期(phase2) 30% 待验收后发放
-        $payout = OutsourceService::payoutSplit($pool);
+        $payout = OutsourceService::payoutSplit($adjustedPool);
         $dist = OutsourceService::distribute($payout['phase1_deliver'], $ratios);
         $now = time();
         // 覆盖式写入：先删旧再插新（同一来源）—— 本次按 70% 交付阶段计入
@@ -122,7 +141,8 @@ class Outsource extends ApiCommon
         return resultArray(['data' => [
             'rows' => $dist['rows'], 'unallocated' => $dist['unallocated'], 'allocated_pct' => $dist['allocated_pct'],
             'payout_rhythm' => $payout,
-            'note' => '本次按交付阶段(70%)计入分配；验收/稳定期30%待验收后发放',
+            'base_pool' => $pool, 'result_coeff' => $resultCoeff, 'adjusted_pool' => $adjustedPool, 'acceptance_result' => $acceptanceResult,
+            'note' => '本次按交付阶段(70%)计入分配；验收/稳定期30%待验收后发放' . $coeffNote,
         ]]);
     }
 

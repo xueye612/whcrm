@@ -1,0 +1,25 @@
+-- ======================================================================
+-- ROLLBACK NOTES：人工评估后执行；已审核事实不得因回滚丢失。
+--
+-- 回滚前必须确认：
+--   1) 无待审核或已通过的 project_milestone/project_contribution 事实依赖这些列。
+--   2) 已通过事实完全保留（仅删除列/索引，不删事实行）。
+--
+-- 回滚脚本（人工执行）：
+--
+-- ALTER TABLE `5kcrm_performance` DROP INDEX `uk_perf_user_period`;
+-- ALTER TABLE `5kcrm_performance` ADD INDEX `idx_perf_user_period` (`user_id`, `period`);
+-- ALTER TABLE `5kcrm_performance_fact` DROP INDEX `uk_fact_source`;
+-- ALTER TABLE `5kcrm_performance_fact` ADD UNIQUE KEY `uk_fact_source` (`source_type`, `source_id`, `period`);
+-- DROP TABLE IF EXISTS `5kcrm_project_performance_audit`;
+-- ALTER TABLE `5kcrm_work_member_contribution` DROP INDEX `uk_contribution_exact`;
+-- ALTER TABLE `5kcrm_work_member_contribution` DROP INDEX `idx_contribution_status`;
+-- ALTER TABLE `5kcrm_work_member_contribution` DROP COLUMN `confirm_time`;
+-- ALTER TABLE `5kcrm_work_member_contribution` DROP COLUMN `confirm_user_id`;
+-- ALTER TABLE `5kcrm_work_member_contribution` DROP COLUMN `status`;
+-- ALTER TABLE `5kcrm_work_milestone` DROP INDEX `uk_milestone_exact`;
+-- ALTER TABLE `5kcrm_work_milestone` DROP INDEX `idx_responsible_user_id`;
+-- ALTER TABLE `5kcrm_work_milestone` DROP COLUMN `responsible_user_id`;
+--
+-- 注意：performance_fact 表中的 project_milestone/project_contribution 事实行
+-- 不因回滚而删除，保留完整审核历史。

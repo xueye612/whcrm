@@ -259,6 +259,202 @@ class File extends Common
 	}
 
 	/**
+	 * 全部 module 关联表（均含 file_id 列）。用于判断附件是否仍被任意模块引用。
+	 */
+	public static function relationTableMap()
+	{
+		return [
+			'crm_leads_file', 'crm_customer_file', 'crm_contacts_file', 'crm_business_file',
+			'crm_product_file', 'crm_contract_file', 'oa_log_file', 'oa_examine_file',
+			'oa_examine_travel_file', 'work_task_file', 'admin_record_file', 'oa_travel_file',
+			'hrm_pact_file', 'hrm_user_file', 'crm_invoice_file', 'crm_activity_file',
+			'crm_visit_file', 'crm_receivables_file', 'jxc_product_file', 'jxc_supplier_file',
+			'jxc_purchase_file', 'jxc_retreat_file', 'jxc_sale_file', 'jxc_salereturn_file',
+			'jxc_receipt_file', 'jxc_outbound_file', 'jxc_payment_file', 'jxc_collection_file',
+			'jxc_inventory_file', 'jxc_allocation_file',
+		];
+	}
+
+	/**
+	 * 枚举当前数据库中真实存在的关联表（兼容未安装 jxc 等模块的环境）。
+	 * @return array
+	 */
+	public function getExistingRelationTables()
+	{
+		static $cache = null;
+		if ($cache !== null) return $cache;
+		$map = self::relationTableMap();
+		try {
+			$rows = Db::query("SHOW TABLES");
+			$set = [];
+			foreach ($rows as $row) {
+				$name = strtolower((string)array_values($row)[0]);
+				$set[$name] = true;
+			}
+			$prefix = '';
+			try { $prefix = strtolower((string)config('database.prefix')); } catch (\Exception $e) {}
+			$result = [];
+			foreach ($map as $table) {
+				$full = $prefix . $table;
+				if (isset($set[$full]) || isset($set[$table])) {
+					$result[] = $table;
+				}
+			}
+			$cache = $result;
+		} catch (\Exception $e) {
+			// 无法枚举表：保守返回全部已知表，计数异常时再按保守策略处理
+			$cache = $map;
+		}
+		return $cache;
+	}
+
+	/**
+	 * 统计附件被全模块关联表引用的总次数。
+	 * @param  int $fileId
+	 * @return int  引用次数；-1 表示无法可靠判定（保守视为“仍被引用”）
+	 */
+	public function countAllReferences($fileId)
+	{
+		$fileId = (int)$fileId;
+		if ($fileId <= 0) return -1;
+		$tables = $this->getExistingRelationTables();
+		$total = 0;
+		foreach ($tables as $table) {
+			try {
+				$total += (int)Db::name($table)->where(['file_id' => $fileId])->count('file_id');
+			} catch (\Exception $e) {
+				// 任一关联表查询异常时无法确认是否被引用，保守判定为仍被引用
+				return -1;
+			}
+		}
+		return $total;
+	}
+
+	/**
+	 * 根据保存名解析附件主键 file_id
+	 */
+	public function getFileIdBySaveName($save_name)
+	{
+		$save_name = trim((string)$save_name);
+		if ($save_name === '') return 0;
+		return (int)$this->where(['save_name' => $save_name])->value('file_id');
+	}
+
+	/**
+	 * 解析并校验附件标识：file_id 与 save_name 同时存在时必须指向同一附件。
+	 * 返回 [bool $ok, int $fileId, string $error]。
+	 */
+	public function resolveFileId(array $param)
+	{
+		$fileId = isset($param['file_id']) ? (int)$param['file_id'] : 0;
+		$saveName = isset($param['save_name']) ? trim((string)$param['save_name']) : '';
+		if ($saveName !== '') {
+			$idBySave = $this->getFileIdBySaveName($saveName);
+			if ($idBySave <= 0) return [false, 0, '附件不存在或已删除'];
+			if ($fileId > 0 && $fileId !== $idBySave) {
+				// file_id 与 save_name 指向不同附件，拒绝
+				return [false, 0, '附件标识不一致'];
+			}
+			$fileId = $idBySave;
+		} elseif ($fileId > 0) {
+			$exists = $this->where(['file_id' => $fileId])->find();
+			if (!$exists) return [false, 0, '附件不存在或已删除'];
+		} else {
+			return [false, 0, '请选择需要操作的附件'];
+		}
+		return [true, $fileId, ''];
+	}
+
+	/**
+	 * 附件是否真实存在 work_task_file 关联（后端权威判定，不依赖前端 work_id/module）。
+	 */
+	public function hasWorkTaskRelation($fileId)
+	{
+		$fileId = (int)$fileId;
+		if ($fileId <= 0) return false;
+		return Db::name('work_task_file')->where(['file_id' => $fileId])->count('file_id') > 0;
+	}
+
+	/**
+	 * 查询任务的真实 work_id（用于上传鉴权时核对 task 是否属于请求中的项目）。
+	 * @param  int $taskId
+	 * @return int  work_id；任务不存在返回 0
+	 */
+	public function getTaskWorkId($taskId)
+	{
+		$taskId = (int)$taskId;
+		if ($taskId <= 0) return 0;
+		return (int)Db::name('task')->where(['task_id' => $taskId])->value('work_id');
+	}
+
+	/**
+	 * 判定附件是否挂在指定项目下的某个任务上。
+	 * 通过 work_task_file JOIN task 校验真实归属，不依赖前端传入的 module。
+	 *
+	 * @param  int $fileId
+	 * @param  int $workId
+	 * @return bool
+	 */
+	public function isWorkTaskFileInProject($fileId, $workId)
+	{
+		$fileId = (int)$fileId;
+		$workId = (int)$workId;
+		if ($fileId <= 0 || $workId <= 0) return false;
+		$cnt = Db::name('work_task_file')->alias('tf')
+			->join('task t', 't.task_id = tf.task_id', 'INNER')
+			->where(['tf.file_id' => $fileId, 't.work_id' => $workId])
+			->count('tf.file_id');
+		return $cnt > 0;
+	}
+
+	/**
+	 * 项目附件删除：仅清理本项目任务范围内的 work_task_file 关联。
+	 * 仅当该附件在全模块范围内不再被任何关联表引用时，才删除 admin_file 主记录；
+	 * 物理文件删除必须在数据库事务成功提交后执行。
+	 *
+	 * @param  int    $fileId
+	 * @param  int    $workId
+	 * @return bool
+	 */
+	public function deleteWorkTaskFileInProject($fileId, $workId)
+	{
+		$fileId = (int)$fileId;
+		$workId = (int)$workId;
+		if ($fileId <= 0 || $workId <= 0) { $this->error = '参数错误'; return false; }
+		$fileInfo = $this->where(['file_id' => $fileId])->find();
+		if (!$fileInfo) { $this->error = '附件不存在或已删除'; return false; }
+
+		$purgeMaster = false; // 是否可安全删除主记录与物理文件
+		Db::startTrans();
+		try {
+			$taskIds = Db::name('task')->where(['work_id' => $workId])->column('task_id');
+			if ($taskIds) {
+				Db::name('work_task_file')
+					->where(['file_id' => $fileId, 'task_id' => ['in', $taskIds]])
+					->delete();
+			}
+			// 仅当全模块范围内无任何引用时，才允许删除主记录与物理文件；
+			// countAllReferences 返回 -1（无法判定）时保守保留，绝不误删被其它模块引用的附件。
+			$remain = $this->countAllReferences($fileId);
+			if ($remain === 0) {
+				Db::name('admin_file')->where(['file_id' => $fileId])->delete();
+				$purgeMaster = true;
+			}
+			Db::commit();
+		} catch (\Exception $e) {
+			Db::rollback();
+			$this->error = '删除失败';
+			return false;
+		}
+		// 物理文件删除在事务提交成功之后执行
+		if ($purgeMaster) {
+			@unlink($fileInfo['file_path']);
+			if (!empty($fileInfo['file_path_thumb'])) @unlink($fileInfo['file_path_thumb']);
+		}
+		return true;
+	}
+
+	/**
 	 * 根据主键获取详情
 	 * @author Michael_xu
 	 * @param  array   $param  [description]

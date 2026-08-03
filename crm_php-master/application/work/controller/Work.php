@@ -717,6 +717,70 @@ class work extends ApiCommon
         $contributions = Db::name('work_member_contribution')->where(['work_id' => $workId])->order('contribution_id asc')->select();
         $knowledge = Db::name('work_knowledge_link')->where(['work_id' => $workId])->order('sort asc, link_id asc')->select();
 
+        // 绩效状态装饰：仅按当前项目的 milestone_id / contribution_id 批量查询对应事实，禁止全表扫描
+        $msFactMap = [];
+        $ctFactMap = [];
+        $msIds = [];
+        $ctIds = [];
+        if (is_array($milestones)) {
+            foreach ($milestones as $mTmp) { $msIds[] = (int)$mTmp['milestone_id']; }
+        }
+        if (is_array($contributions)) {
+            foreach ($contributions as $cTmp) { $ctIds[] = (int)$cTmp['contribution_id']; }
+        }
+        $factSourceIds = [];
+        foreach ($msIds as $mid) { $factSourceIds[] = 'milestone:' . $mid; }
+        foreach ($ctIds as $ccid) { $factSourceIds[] = 'contribution:' . $ccid; }
+        if (!empty($factSourceIds)) {
+            // 表不存在时如实返回错误，不得用空 catch 伪装成"待归集"
+            $projFacts = Db::name('performance_fact')
+                ->where('source_type', 'in', ['project_milestone', 'project_contribution'])
+                ->where('source_id', 'in', $factSourceIds)
+                ->select();
+            if (!is_array($projFacts)) $projFacts = [];
+            foreach ($projFacts as $f) {
+                $sid = (string)$f['source_id'];
+                if (strpos($sid, 'milestone:') === 0) {
+                    $msFactMap[(int)substr($sid, strlen('milestone:'))] = $f;
+                } elseif (strpos($sid, 'contribution:') === 0) {
+                    $ctFactMap[(int)substr($sid, strlen('contribution:'))] = $f;
+                }
+            }
+        }
+        if (is_array($milestones)) {
+            foreach ($milestones as &$mRow) {
+                $rid = (int)($mRow['responsible_user_id'] ?? 0);
+                $fact = isset($msFactMap[(int)$mRow['milestone_id']]) ? $msFactMap[(int)$mRow['milestone_id']] : null;
+                $isMember = $rid > 0 && $service->isProjectMember($workId, $rid);
+                $p = \app\work\logic\ProjectService::milestonePerformanceStatus($mRow, $isMember, $fact ? $fact['status'] : null, $fact ? (int)$fact['fact_id'] : 0);
+                $mRow['performance_status'] = $p['status'];
+                $mRow['performance_status_text'] = isset(\app\work\logic\ProjectService::$perfStatusText[$p['status']]) ? \app\work\logic\ProjectService::$perfStatusText[$p['status']] : $p['status'];
+                $mRow['performance_status_reason'] = $p['reason'];
+                $mRow['performance_fact_id'] = $p['fact_id'];
+                $mRow['performance_period'] = $fact ? (string)$fact['period'] : '';
+                $mRow['performance_review_note'] = $fact ? (string)($fact['review_note'] ?? '') : '';
+            }
+            unset($mRow);
+        }
+        if (is_array($contributions)) {
+            foreach ($contributions as &$cRow) {
+                $uid = (int)($cRow['user_id'] ?? 0);
+                $fact = isset($ctFactMap[(int)$cRow['contribution_id']]) ? $ctFactMap[(int)$cRow['contribution_id']] : null;
+                $isMember = $uid > 0 && $service->isProjectMember($workId, $uid);
+                $p = \app\work\logic\ProjectService::contributionPerformanceStatus($cRow, $isMember, $fact ? $fact['status'] : null, $fact ? (int)$fact['fact_id'] : 0);
+                $cRow['performance_status'] = $p['status'];
+                $cRow['performance_status_text'] = isset(\app\work\logic\ProjectService::$perfStatusText[$p['status']]) ? \app\work\logic\ProjectService::$perfStatusText[$p['status']] : $p['status'];
+                $cRow['performance_status_reason'] = $p['reason'];
+                $cRow['performance_fact_id'] = $p['fact_id'];
+                // performance_period 取 performance_fact.period（真实季度），不得用周期天数赋值
+                $cRow['performance_period'] = $fact ? (string)$fact['period'] : '';
+                $cRow['performance_review_note'] = $fact ? (string)($fact['review_note'] ?? '') : '';
+                // 周期天数使用单独字段 period_days
+                $cRow['period_days'] = \app\work\logic\ProjectService::periodDays((int)($cRow['start_time'] ?? 0), (int)($cRow['end_time'] ?? 0));
+            }
+            unset($cRow);
+        }
+
         $canManage = $this->checkWorkOperationAuth('setWork', $workId, (int)$userInfo['id']);
         return resultArray(['data' => [
             'work_id'       => $workId,
@@ -762,34 +826,126 @@ class work extends ApiCommon
         list($ok, $err) = $this->requireWorkManage($workId, $userInfo['id']);
         if (!$ok) return resultArray(['error' => $err]);
 
+        $svc = '\\app\\work\\logic\\ProjectService';
+        $milestoneId = (int)($param['milestone_id'] ?? 0);
+        $perfSvc = new \app\work\logic\ProjectPerformanceService();
+
+        // 事务前读取已有记录
+        $existing = null;
+        if ($milestoneId > 0) {
+            $existing = Db::name('work_milestone')->where(['milestone_id' => $milestoneId, 'work_id' => $workId])->find();
+            if (!$existing) return resultArray(['error' => '里程碑不存在或不属于当前项目']);
+            // 更新前检查关联事实是否已通过：在写入源记录前拒绝
+            // 对于已通过事实，检查是否有关键字段变更
+            $existFact = Db::name('performance_fact')->where(['source_type' => 'project_milestone', 'source_id' => 'milestone:' . $milestoneId])->find();
+            if ($existFact && (string)$existFact['status'] === '已通过') {
+                $keyChanged = false;
+                if (array_key_exists('responsible_user_id', $param) && (int)$param['responsible_user_id'] !== (int)$existing['responsible_user_id']) $keyChanged = true;
+                if (array_key_exists('status', $param) && trim((string)$param['status']) !== (string)$existing['status']) $keyChanged = true;
+                $actualSt = $svc::resolveFieldTimeState($param, 'actual_time');
+                if ($actualSt['state'] === 2 && $actualSt['ts'] !== (int)$existing['actual_time']) $keyChanged = true;
+                if ($keyChanged) {
+                    return resultArray(['error' => '该里程碑绩效已通过，修改关键字段需先执行绩效撤回流程']);
+                }
+            }
+        }
+
         $service = new \app\work\logic\ProjectService();
-        $verr = $service->validateMilestone($param);
+        $verr = $service->validateMilestone($param, $existing);
         if ($verr) return resultArray(['error' => $verr]);
 
-        $now = time();
-        $row = [
-            'work_id'        => $workId,
-            'milestone_type' => trim((string)$param['milestone_type']),
-            'name'           => trim((string)($param['name'] ?? '')),
-            'plan_time'      => \app\work\logic\ProjectService::parseTime($param['plan_time'] ?? ''),
-            'actual_time'    => \app\work\logic\ProjectService::parseTime($param['actual_time'] ?? ''),
-            'status'         => trim((string)($param['status'] ?? \app\work\logic\ProjectService::MS_STATUS_TODO)),
-            'sort'           => (int)($param['sort'] ?? 0),
-            'evidence_note'  => trim((string)($param['evidence_note'] ?? '')),
-            'update_time'    => $now,
-        ];
-        $milestoneId = (int)($param['milestone_id'] ?? 0);
-        if ($milestoneId > 0) {
-            $row['update_time'] = $now;
-            Db::name('work_milestone')->where(['milestone_id' => $milestoneId, 'work_id' => $workId])->update($row);
-            $id = $milestoneId;
-        } else {
-            $row['create_user_id'] = (int)$userInfo['id'];
-            $row['create_time'] = $now;
-            $id = Db::name('work_milestone')->insertGetId($row);
-            if (!$id) return resultArray(['error' => '里程碑创建失败']);
+        $respId = (int)($param['responsible_user_id'] ?? ($existing ? $existing['responsible_user_id'] : 0));
+        if ($respId <= 0) return resultArray(['error' => '请选择里程碑负责人']);
+        if (!$service->isProjectMember($workId, $respId)) return resultArray(['error' => '负责人必须是当前项目成员']);
+
+        $effType = trim((string)($param['milestone_type'] ?? ($existing ? $existing['milestone_type'] : '')));
+        $effName = trim((string)($param['name'] ?? ($existing ? $existing['name'] : '')));
+        $effPlanSt = $svc::resolveFieldTimeState($param, 'plan_time');
+        $effPlan = ($effPlanSt['state'] === 2) ? $effPlanSt['ts'] : ($effPlanSt['state'] === 1 ? 0 : (int)($existing ? $existing['plan_time'] : 0));
+        if ($service->findDuplicateMilestone($workId, $effType, $effName, $effPlan, $respId, $milestoneId)) {
+            return resultArray(['error' => '已存在相同类型、名称、计划时间与负责人的里程碑']);
         }
-        return resultArray(['data' => ['milestone_id' => $id]]);
+
+        $now = time();
+        // 统一事务：写源记录 + 同步绩效事实原子完成
+        Db::startTrans();
+        try {
+            if ($milestoneId > 0) {
+                // 锁定源记录与事实后再次校验；事务前检查仅用于快速失败，不能作为并发保护。
+                $lockedExisting = Db::name('work_milestone')->where(['milestone_id' => $milestoneId, 'work_id' => $workId])->lock(true)->find();
+                if (!$lockedExisting) { Db::rollback(); return resultArray(['error' => '里程碑不存在或不属于当前项目']); }
+                $lockedFact = Db::name('performance_fact')->where(['source_type' => 'project_milestone', 'source_id' => 'milestone:' . $milestoneId])->lock(true)->find();
+                if ($lockedFact && (string)$lockedFact['status'] === '已通过') {
+                    $critical = ['milestone_type', 'name', 'status', 'responsible_user_id', 'evidence_note'];
+                    foreach ($critical as $field) {
+                        if (array_key_exists($field, $param) && (string)$param[$field] !== (string)$lockedExisting[$field]) {
+                            Db::rollback();
+                            return resultArray(['error' => '该里程碑绩效已通过，修改关键字段需先执行绩效撤回流程']);
+                        }
+                    }
+                    foreach (['plan_time', 'actual_time'] as $field) {
+                        $state = $svc::resolveFieldTimeState($param, $field);
+                        $newTs = $state['state'] === 2 ? (int)$state['ts'] : ($state['state'] === 1 ? 0 : (int)$lockedExisting[$field]);
+                        if ($newTs !== (int)$lockedExisting[$field]) {
+                            Db::rollback();
+                            return resultArray(['error' => '该里程碑绩效已通过，修改关键字段需先执行绩效撤回流程']);
+                        }
+                    }
+                }
+                $existing = $lockedExisting;
+                $lockedErr = $service->validateMilestone($param, $existing);
+                if ($lockedErr) { Db::rollback(); return resultArray(['error' => $lockedErr]); }
+                $lockedResp = (int)($param['responsible_user_id'] ?? $existing['responsible_user_id']);
+                if (!$service->isProjectMember($workId, $lockedResp)) { Db::rollback(); return resultArray(['error' => '负责人必须是当前项目成员']); }
+                $lockedPlanState = $svc::resolveFieldTimeState($param, 'plan_time');
+                $lockedPlan = $lockedPlanState['state'] === 2 ? (int)$lockedPlanState['ts'] : ($lockedPlanState['state'] === 1 ? 0 : (int)$existing['plan_time']);
+                $lockedType = trim((string)($param['milestone_type'] ?? $existing['milestone_type']));
+                $lockedName = trim((string)($param['name'] ?? $existing['name']));
+                if ($service->findDuplicateMilestone($workId, $lockedType, $lockedName, $lockedPlan, $lockedResp, $milestoneId)) {
+                    Db::rollback();
+                    return resultArray(['error' => '已存在相同类型、名称、计划时间与负责人的里程碑']);
+                }
+                $row = ['update_time' => $now];
+                if (array_key_exists('milestone_type', $param)) $row['milestone_type'] = trim((string)$param['milestone_type']);
+                if (array_key_exists('name', $param)) $row['name'] = trim((string)$param['name']);
+                if (array_key_exists('status', $param)) $row['status'] = trim((string)$param['status']);
+                if (array_key_exists('responsible_user_id', $param)) $row['responsible_user_id'] = (int)$param['responsible_user_id'];
+                if (array_key_exists('sort', $param)) $row['sort'] = (int)$param['sort'];
+                if (array_key_exists('evidence_note', $param)) $row['evidence_note'] = trim((string)$param['evidence_note']);
+                $row = array_merge($row, $svc::buildDateRow($param, ['plan_time', 'actual_time'], false));
+                $row = $this->filterRowColumns('work_milestone', $row);
+                Db::name('work_milestone')->where(['milestone_id' => $milestoneId, 'work_id' => $workId])->update($row);
+                $id = $milestoneId;
+            } else {
+                $row = [
+                    'work_id'        => $workId,
+                    'milestone_type' => trim((string)($param['milestone_type'] ?? '')),
+                    'name'           => trim((string)($param['name'] ?? '')),
+                    'status'         => trim((string)($param['status'] ?? \app\work\logic\ProjectService::MS_STATUS_TODO)),
+                    'responsible_user_id' => $respId,
+                    'sort'           => (int)($param['sort'] ?? 0),
+                    'evidence_note'  => trim((string)($param['evidence_note'] ?? '')),
+                    'create_user_id' => (int)$userInfo['id'],
+                    'create_time'    => $now,
+                    'update_time'    => $now,
+                ];
+                $row = array_merge($row, $svc::buildDateRow($param, ['plan_time', 'actual_time'], true));
+                $row = $this->filterRowColumns('work_milestone', $row);
+                $id = Db::name('work_milestone')->insertGetId($row);
+                if (!$id) { Db::rollback(); return resultArray(['error' => '里程碑创建失败']); }
+            }
+            // 同步绩效事实（同一事务内；服务不自行开事务）
+            $sync = $perfSvc->syncMilestone($id, (int)$userInfo['id']);
+            if (!$sync['ok']) {
+                Db::rollback();
+                return resultArray(['error' => $sync['error']]);
+            }
+            Db::commit();
+            return resultArray(['data' => ['milestone_id' => $id, 'performance_sync' => $sync]]);
+        } catch (\Exception $e) {
+            Db::rollback();
+            return resultArray(['error' => '保存失败：' . $e->getMessage()]);
+        }
     }
 
     /** 删除里程碑 */
@@ -802,8 +958,21 @@ class work extends ApiCommon
         if (!$ok) return resultArray(['error' => $err]);
         $milestoneId = (int)($param['milestone_id'] ?? 0);
         if ($milestoneId <= 0) return resultArray(['error' => '参数错误']);
-        Db::name('work_milestone')->where(['milestone_id' => $milestoneId, 'work_id' => $workId])->delete();
-        return resultArray(['data' => '删除成功']);
+        $perfSvc = new \app\work\logic\ProjectPerformanceService();
+        Db::startTrans();
+        try {
+            $source = Db::name('work_milestone')->where(['milestone_id' => $milestoneId, 'work_id' => $workId])->lock(true)->find();
+            if (!$source) { Db::rollback(); return resultArray(['error' => '里程碑不存在或不属于当前项目']); }
+            $factCheck = $perfSvc->prepareDeleteMilestone($milestoneId, (int)$userInfo['id']);
+            if (!$factCheck['can_delete']) { Db::rollback(); return resultArray(['error' => $factCheck['reason']]); }
+            $affected = Db::name('work_milestone')->where(['milestone_id' => $milestoneId, 'work_id' => $workId])->delete();
+            if (!$affected) { Db::rollback(); return resultArray(['error' => '里程碑删除失败']); }
+            Db::commit();
+            return resultArray(['data' => '删除成功']);
+        } catch (\Exception $e) {
+            Db::rollback();
+            return resultArray(['error' => '删除失败：' . $e->getMessage()]);
+        }
     }
 
     /** 新增/更新成员贡献 */
@@ -814,33 +983,133 @@ class work extends ApiCommon
         $workId = (int)($param['work_id'] ?? 0);
         list($ok, $err) = $this->requireWorkManage($workId, $userInfo['id']);
         if (!$ok) return resultArray(['error' => $err]);
-        $userId = (int)($param['user_id'] ?? 0);
-        if ($userId <= 0) return resultArray(['error' => '请选择贡献人']);
-        $onSiteDays = (float)($param['on_site_days'] ?? 0);
-        if ($onSiteDays < 0) return resultArray(['error' => '现场人日不能为负']);
+
+        $svc = '\\app\\work\\logic\\ProjectService';
+        $cid = (int)($param['contribution_id'] ?? 0);
+        $perfSvc = new \app\work\logic\ProjectPerformanceService();
+
+        // 事务前读取已有记录
+        $existing = null;
+        if ($cid > 0) {
+            $existing = Db::name('work_member_contribution')->where(['contribution_id' => $cid, 'work_id' => $workId])->find();
+            if (!$existing) return resultArray(['error' => '贡献记录不存在或不属于当前项目']);
+            // 更新前检查关联事实是否已通过：关键字段变更时拒绝
+            $existFact = Db::name('performance_fact')->where(['source_type' => 'project_contribution', 'source_id' => 'contribution:' . $cid])->find();
+            if ($existFact && (string)$existFact['status'] === '已通过') {
+                $keyChanged = false;
+                if (array_key_exists('user_id', $param) && (int)$param['user_id'] !== (int)$existing['user_id']) $keyChanged = true;
+                if (array_key_exists('on_site_days', $param) && $param['on_site_days'] !== '' && $param['on_site_days'] !== null && (float)$param['on_site_days'] !== (float)$existing['on_site_days']) $keyChanged = true;
+                if (array_key_exists('status', $param) && trim((string)$param['status']) !== (string)$existing['status']) $keyChanged = true;
+                $startSt = $svc::resolveFieldTimeState($param, 'start_time');
+                if ($startSt['state'] === 2 && $startSt['ts'] !== (int)$existing['start_time']) $keyChanged = true;
+                $endSt = $svc::resolveFieldTimeState($param, 'end_time');
+                if ($endSt['state'] === 2 && $endSt['ts'] !== (int)$existing['end_time']) $keyChanged = true;
+                if ($keyChanged) {
+                    return resultArray(['error' => '该贡献绩效已通过，修改关键字段需先执行绩效撤回流程']);
+                }
+            }
+        }
+
+        $service = new \app\work\logic\ProjectService();
+        $verr = $service->validateContribution($param, $workId, $existing);
+        if ($verr) return resultArray(['error' => $verr]);
+
+        $contribStatus = trim((string)($param['status'] ?? ($existing ? $existing['status'] : \app\work\logic\ProjectService::CONTRIB_DRAFT)));
+        $effUser = (int)($param['user_id'] ?? ($existing ? $existing['user_id'] : 0));
+        $effRole = trim((string)($param['contribution_role'] ?? ($existing ? $existing['contribution_role'] : '')));
+        $effStartSt = $svc::resolveFieldTimeState($param, 'start_time');
+        $effStart = ($effStartSt['state'] === 2) ? $effStartSt['ts'] : ($effStartSt['state'] === 1 ? 0 : (int)($existing ? $existing['start_time'] : 0));
+        $effEndSt = $svc::resolveFieldTimeState($param, 'end_time');
+        $effEnd = ($effEndSt['state'] === 2) ? $effEndSt['ts'] : ($effEndSt['state'] === 1 ? 0 : (int)($existing ? $existing['end_time'] : 0));
+
+        if ($service->findDuplicateContribution($workId, $effUser, $effRole, $effStart, $effEnd, $cid)) {
+            return resultArray(['error' => '已存在相同贡献人、角色与起止时间的贡献记录']);
+        }
 
         $now = time();
-        $row = [
-            'work_id'          => $workId,
-            'user_id'          => $userId,
-            'contribution_role'=> trim((string)($param['contribution_role'] ?? '')),
-            'on_site_days'     => $onSiteDays,
-            'start_time'       => \app\work\logic\ProjectService::parseTime($param['start_time'] ?? ''),
-            'end_time'         => \app\work\logic\ProjectService::parseTime($param['end_time'] ?? ''),
-            'evidence_note'    => trim((string)($param['evidence_note'] ?? '')),
-            'update_time'      => $now,
-        ];
-        $cid = (int)($param['contribution_id'] ?? 0);
-        if ($cid > 0) {
-            Db::name('work_member_contribution')->where(['contribution_id' => $cid, 'work_id' => $workId])->update($row);
-            $id = $cid;
-        } else {
-            $row['create_user_id'] = (int)$userInfo['id'];
-            $row['create_time'] = $now;
-            $id = Db::name('work_member_contribution')->insertGetId($row);
-            if (!$id) return resultArray(['error' => '贡献记录创建失败']);
+        // 统一事务：写源记录 + 同步绩效事实原子完成
+        Db::startTrans();
+        try {
+            if ($cid > 0) {
+                $lockedExisting = Db::name('work_member_contribution')->where(['contribution_id' => $cid, 'work_id' => $workId])->lock(true)->find();
+                if (!$lockedExisting) { Db::rollback(); return resultArray(['error' => '贡献记录不存在或不属于当前项目']); }
+                $lockedFact = Db::name('performance_fact')->where(['source_type' => 'project_contribution', 'source_id' => 'contribution:' . $cid])->lock(true)->find();
+                if ($lockedFact && (string)$lockedFact['status'] === '已通过') {
+                    $critical = ['user_id', 'contribution_role', 'status', 'on_site_days', 'evidence_note'];
+                    foreach ($critical as $field) {
+                        if (array_key_exists($field, $param) && (string)$param[$field] !== (string)$lockedExisting[$field]) {
+                            Db::rollback();
+                            return resultArray(['error' => '该贡献绩效已通过，修改关键字段需先执行绩效撤回流程']);
+                        }
+                    }
+                    foreach (['start_time', 'end_time'] as $field) {
+                        $state = $svc::resolveFieldTimeState($param, $field);
+                        $newTs = $state['state'] === 2 ? (int)$state['ts'] : ($state['state'] === 1 ? 0 : (int)$lockedExisting[$field]);
+                        if ($newTs !== (int)$lockedExisting[$field]) {
+                            Db::rollback();
+                            return resultArray(['error' => '该贡献绩效已通过，修改关键字段需先执行绩效撤回流程']);
+                        }
+                    }
+                }
+                $existing = $lockedExisting;
+                $lockedErr = $service->validateContribution($param, $workId, $existing);
+                if ($lockedErr) { Db::rollback(); return resultArray(['error' => $lockedErr]); }
+                $lockedUser = (int)($param['user_id'] ?? $existing['user_id']);
+                $lockedRole = trim((string)($param['contribution_role'] ?? $existing['contribution_role']));
+                $lockedStartState = $svc::resolveFieldTimeState($param, 'start_time');
+                $lockedStart = $lockedStartState['state'] === 2 ? (int)$lockedStartState['ts'] : ($lockedStartState['state'] === 1 ? 0 : (int)$existing['start_time']);
+                $lockedEndState = $svc::resolveFieldTimeState($param, 'end_time');
+                $lockedEnd = $lockedEndState['state'] === 2 ? (int)$lockedEndState['ts'] : ($lockedEndState['state'] === 1 ? 0 : (int)$existing['end_time']);
+                if ($service->findDuplicateContribution($workId, $lockedUser, $lockedRole, $lockedStart, $lockedEnd, $cid)) {
+                    Db::rollback();
+                    return resultArray(['error' => '已存在相同贡献人、角色与起止时间的贡献记录']);
+                }
+                $lockedStatus = trim((string)($param['status'] ?? $existing['status']));
+                $lockedIsConfirm = $lockedStatus === \app\work\logic\ProjectService::CONTRIB_CONFIRMED
+                    && (string)$existing['status'] !== \app\work\logic\ProjectService::CONTRIB_CONFIRMED;
+                $row = ['update_time' => $now];
+                if (array_key_exists('status', $param)) $row['status'] = $lockedStatus;
+                if (array_key_exists('user_id', $param)) $row['user_id'] = (int)$param['user_id'];
+                if (array_key_exists('contribution_role', $param)) $row['contribution_role'] = trim((string)$param['contribution_role']);
+                if (array_key_exists('on_site_days', $param) && $param['on_site_days'] !== '' && $param['on_site_days'] !== null) {
+                    $row['on_site_days'] = $svc::roundDecimal1((float)$param['on_site_days']);
+                }
+                if (array_key_exists('evidence_note', $param)) $row['evidence_note'] = trim((string)$param['evidence_note']);
+                if ($lockedIsConfirm) { $row['confirm_user_id'] = (int)$userInfo['id']; $row['confirm_time'] = $now; }
+                $row = array_merge($row, $svc::buildDateRow($param, ['start_time', 'end_time'], false));
+                $row = $this->filterRowColumns('work_member_contribution', $row);
+                Db::name('work_member_contribution')->where(['contribution_id' => $cid, 'work_id' => $workId])->update($row);
+                $id = $cid;
+            } else {
+                $row = [
+                    'work_id'          => $workId,
+                    'user_id'          => (int)($param['user_id'] ?? 0),
+                    'contribution_role'=> trim((string)($param['contribution_role'] ?? '')),
+                    'status'           => $contribStatus,
+                    'on_site_days'     => (array_key_exists('on_site_days', $param) && $param['on_site_days'] !== '' && $param['on_site_days'] !== null) ? $svc::roundDecimal1((float)$param['on_site_days']) : 0,
+                    'evidence_note'    => trim((string)($param['evidence_note'] ?? '')),
+                    'create_user_id'   => (int)$userInfo['id'],
+                    'create_time'      => $now,
+                    'update_time'      => $now,
+                ];
+                if ($contribStatus === \app\work\logic\ProjectService::CONTRIB_CONFIRMED) { $row['confirm_user_id'] = (int)$userInfo['id']; $row['confirm_time'] = $now; }
+                $row = array_merge($row, $svc::buildDateRow($param, ['start_time', 'end_time'], true));
+                $row = $this->filterRowColumns('work_member_contribution', $row);
+                $id = Db::name('work_member_contribution')->insertGetId($row);
+                if (!$id) { Db::rollback(); return resultArray(['error' => '贡献记录创建失败']); }
+            }
+            // 同步绩效事实（同一事务内；服务不自行开事务）
+            $sync = $perfSvc->syncContribution($id, (int)$userInfo['id']);
+            if (!$sync['ok']) {
+                Db::rollback();
+                return resultArray(['error' => $sync['error']]);
+            }
+            Db::commit();
+            return resultArray(['data' => ['contribution_id' => $id, 'performance_sync' => $sync]]);
+        } catch (\Exception $e) {
+            Db::rollback();
+            return resultArray(['error' => '保存失败：' . $e->getMessage()]);
         }
-        return resultArray(['data' => ['contribution_id' => $id]]);
     }
 
     /** 删除成员贡献 */
@@ -853,8 +1122,52 @@ class work extends ApiCommon
         if (!$ok) return resultArray(['error' => $err]);
         $cid = (int)($param['contribution_id'] ?? 0);
         if ($cid <= 0) return resultArray(['error' => '参数错误']);
-        Db::name('work_member_contribution')->where(['contribution_id' => $cid, 'work_id' => $workId])->delete();
-        return resultArray(['data' => '删除成功']);
+        $perfSvc = new \app\work\logic\ProjectPerformanceService();
+        Db::startTrans();
+        try {
+            $source = Db::name('work_member_contribution')->where(['contribution_id' => $cid, 'work_id' => $workId])->lock(true)->find();
+            if (!$source) { Db::rollback(); return resultArray(['error' => '贡献记录不存在或不属于当前项目']); }
+            $factCheck = $perfSvc->prepareDeleteContribution($cid, (int)$userInfo['id']);
+            if (!$factCheck['can_delete']) { Db::rollback(); return resultArray(['error' => $factCheck['reason']]); }
+            $affected = Db::name('work_member_contribution')->where(['contribution_id' => $cid, 'work_id' => $workId])->delete();
+            if (!$affected) { Db::rollback(); return resultArray(['error' => '贡献记录删除失败']); }
+            Db::commit();
+            return resultArray(['data' => '删除成功']);
+        } catch (\Exception $e) {
+            Db::rollback();
+            return resultArray(['error' => '删除失败：' . $e->getMessage()]);
+        }
+    }
+
+    /** 显式重新提交已驳回的项目绩效事实。 */
+    public function projectPerformanceResubmit()
+    {
+        $param = $this->param;
+        $userInfo = $this->userInfo;
+        $workId = (int)($param['work_id'] ?? 0);
+        list($ok, $err) = $this->requireWorkManage($workId, $userInfo['id']);
+        if (!$ok) return resultArray(['error' => $err]);
+        $sourceType = trim((string)($param['source_type'] ?? ''));
+        $sourceId = (int)($param['source_id'] ?? 0);
+        if ($sourceId <= 0 || !in_array($sourceType, ['milestone', 'contribution'], true)) return resultArray(['error' => '参数错误']);
+
+        $table = $sourceType === 'milestone' ? 'work_milestone' : 'work_member_contribution';
+        $idField = $sourceType === 'milestone' ? 'milestone_id' : 'contribution_id';
+        $svc = new \app\work\logic\ProjectPerformanceService();
+        Db::startTrans();
+        try {
+            $source = Db::name($table)->where([$idField => $sourceId, 'work_id' => $workId])->lock(true)->find();
+            if (!$source) { Db::rollback(); return resultArray(['error' => '来源记录不存在或不属于当前项目']); }
+            $result = $sourceType === 'milestone'
+                ? $svc->resubmitMilestone($sourceId, (int)$userInfo['id'])
+                : $svc->resubmitContribution($sourceId, (int)$userInfo['id']);
+            if (!$result['ok']) { Db::rollback(); return resultArray(['error' => $result['error']]); }
+            Db::commit();
+            return resultArray(['data' => $result]);
+        } catch (\Exception $e) {
+            Db::rollback();
+            return resultArray(['error' => '重新提交失败：' . $e->getMessage()]);
+        }
     }
 
     /** 新增/更新知识链接 */
@@ -869,6 +1182,15 @@ class work extends ApiCommon
         $service = new \app\work\logic\ProjectService();
         $verr = $service->validateKnowledge($param);
         if ($verr) return resultArray(['error' => $verr]);
+        $oerr = $service->validateKnowledgeOwner($param, $workId);
+        if ($oerr) return resultArray(['error' => $oerr]);
+
+        $lid = (int)($param['link_id'] ?? 0);
+        // 更新时确认 link_id 属于当前 work_id
+        if ($lid > 0) {
+            $exist = Db::name('work_knowledge_link')->where(['link_id' => $lid, 'work_id' => $workId])->find();
+            if (!$exist) return resultArray(['error' => '知识链接不存在或不属于当前项目']);
+        }
 
         $now = time();
         $row = [
@@ -881,7 +1203,6 @@ class work extends ApiCommon
             'sort'               => (int)($param['sort'] ?? 0),
             'update_time'        => $now,
         ];
-        $lid = (int)($param['link_id'] ?? 0);
         if ($lid > 0) {
             Db::name('work_knowledge_link')->where(['link_id' => $lid, 'work_id' => $workId])->update($row);
             $id = $lid;
@@ -904,8 +1225,38 @@ class work extends ApiCommon
         if (!$ok) return resultArray(['error' => $err]);
         $lid = (int)($param['link_id'] ?? 0);
         if ($lid <= 0) return resultArray(['error' => '参数错误']);
-        Db::name('work_knowledge_link')->where(['link_id' => $lid, 'work_id' => $workId])->delete();
+        $affected = Db::name('work_knowledge_link')->where(['link_id' => $lid, 'work_id' => $workId])->delete();
+        if (!$affected) return resultArray(['error' => '知识链接不存在或不属于当前项目']);
         return resultArray(['data' => '删除成功']);
     }
+
+    /** 缓存：表列存在性检测，避免迁移未执行时 SQL 报错 */
+    private static $columnCache = [];
+    private function hasColumn($table, $column)
+    {
+        $key = $table . '.' . $column;
+        if (isset(self::$columnCache[$key])) return self::$columnCache[$key];
+        try {
+            $row = Db::query("SELECT COUNT(*) AS cnt FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='" . addslashes($table) . "' AND COLUMN_NAME='" . addslashes($column) . "'");
+            $exists = !empty($row) && (int)$row[0]['cnt'] > 0;
+        } catch (\Exception $e) {
+            $exists = false;
+        }
+        self::$columnCache[$key] = $exists;
+        return $exists;
+    }
+
+    /** 过滤掉表中尚不存在的列，避免 INSERT/UPDATE 报 "fields not exists" */
+    private function filterRowColumns($table, array $row)
+    {
+        $prefix = config('database.prefix');
+        $fullTable = $prefix . $table;
+        $filtered = [];
+        foreach ($row as $col => $val) {
+            if ($this->hasColumn($fullTable, $col)) {
+                $filtered[$col] = $val;
+            }
+        }
+        return $filtered;
+    }
 }
- 

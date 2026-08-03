@@ -175,6 +175,7 @@
           <el-button v-if="canUpdate" type="text" @click="openEdit(scope.row)">编辑</el-button>
           <el-button v-if="canUpdate && !scope.row.task_id" type="text" @click="openConvertTask(scope.row)">转任务</el-button>
           <el-button v-if="scope.row.task_id" type="text" @click="openTaskLink(scope.row)">查看任务</el-button>
+          <el-button v-if="scope.row.task_id" type="text" @click="goEvaluateWRK(scope.row)">去评估 W/R/K</el-button>
           <el-button v-if="canDelete" type="text" @click="handleDelete(scope.row)">删除</el-button>
         </template>
       </el-table-column>
@@ -500,7 +501,7 @@
           <section class="detail-section detail-section-desc">
             <div class="section-title">描述信息</div>
             <div class="text-block">
-              <div v-if="detail.description" class="text-value rich-text rich-html" v-html="detail.description" />
+              <div v-if="detail.description" class="text-value rich-text rich-html" v-html="richHtml(detail.description)" />
               <div v-else class="text-value text-empty">暂无描述</div>
             </div>
           </section>
@@ -604,6 +605,7 @@ import { isMobileClient } from '@/utils/mobileClient'
 import { workIndexWorkListAPI } from '@/api/pm/task'
 import { workWorkStatisticAPI } from '@/api/pm/statistics'
 import { downloadExcelWithResData } from '@/utils'
+import sanitizeHtml from '@/utils/sanitize'
 import { DEFAULT_LEDGER_CATEGORY, LEDGER_STATUS_OPTIONS } from '@/utils/ledgerFormat'
 import { isCompletedLedgerStatus, isClosedLedgerStatus, normalizeCompletionFields } from '@/utils/ledgerCompletion'
 import { copyLedgerShareLink } from '@/utils/ledgerLink'
@@ -827,6 +829,10 @@ export default {
     }
   },
   methods: {
+    // 富文本净化后再渲染，防止 XSS
+    richHtml(html) {
+      return sanitizeHtml(html)
+    },
     openConvertTask(row) {
       this.convertRow = row
       this.convertForm = { work_id: '', class_id: '', main_user_id: '', stop_time: '', reason: '' }
@@ -839,6 +845,13 @@ export default {
       if (!row || !row.task_id) return
       const route = this.$router.resolve({ path: '/project/workbench', query: { task_id: String(row.task_id) }})
       window.open(route.href, '_blank')
+    },
+    /**
+     * 台账关联任务的 W/R/K 评估在任务详情中完成：
+     * 通过 task_id 在新标签打开项目工作台并定位到该任务。
+     */
+    goEvaluateWRK(row) {
+      this.openTaskLink(row)
     },
     async onProjectChange(workId) {
       this.convertForm.class_id = ''

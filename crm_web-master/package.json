@@ -8,9 +8,10 @@
     "start": "npm run dev",
     "build": "node --openssl-legacy-provider build/build.js",
     "build:report": "npm_config_report=true npm run build",
-    "lint": "eslint --ext .js,.vue src --fix",
-    "test": "npm run lint",
-    "test:unit": "node tests/ledgerCompletion.test.js && node tests/ledgerFormat.test.js"
+    "lint": "eslint --ext .js,.vue src",
+    "lint:fix": "eslint --ext .js,.vue src --fix",
+    "test": "npm run lint && npm run test:unit",
+    "test:unit": "node tests/run-all.js"
   },
   "dependencies": {
     "@chenfengyuan/vue-qrcode": "^1.0.2",

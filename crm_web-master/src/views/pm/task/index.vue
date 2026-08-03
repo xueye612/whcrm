@@ -141,8 +141,8 @@
                   </div>
                   <el-tooltip
                     :content="element.name"
-                    placement="top"
                     :disabled="!element.name || element.name.length < 20"
+                    placement="top"
                     effect="dark">
                     <span class="card-title">{{ element.name }}</span>
                   </el-tooltip>
@@ -170,7 +170,7 @@
                       {{ [element.initW || element.init_w, element.initR || element.init_r, element.initK || element.init_k].filter(Boolean).join(' \u00B7 ') }}
                     </span>
                   </el-tooltip>
-                  <span v-if="element.stop_time" class="card-deadline" :class="deadlineClass(element)">
+                  <span v-if="element.stop_time" :class="deadlineClass(element)" class="card-deadline">
                     {{ deadlineText(element) }}
                   </span>
                   <span v-if="element.commentcount" class="card-meta-item">

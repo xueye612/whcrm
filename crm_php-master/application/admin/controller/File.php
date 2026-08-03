@@ -58,19 +58,38 @@ class File extends ApiCommon
         header('Access-Control-Allow-Origin: *');
         header('Access-Control-Allow-Methods: POST');
         header("Access-Control-Allow-Headers: Origin, X-Requested-With, Content-Type, Accept");
+
+        $fileModel = model('File');
+        $userId = $this->userInfo['id'];
+
+        # 项目附件上传鉴权：必须在保存物理文件、写 admin_file、写 work_task_file 之前完成。
+        # module=work_task 即视为项目附件，必须同时满足：work_id>0、task(module_id)>0、
+        # task 真实属于该 work_id、当前用户拥有 uploadTaskFile 权限。任一不满足直接拒绝。
+        if (!empty($this->param['module']) && $this->param['module'] == 'work_task') {
+            $workId = (int)($this->param['work_id'] ?? 0);
+            $taskId = (int)($this->param['module_id'] ?? 0);
+            if ($workId <= 0) {
+                return resultArray(['error' => '项目附件必须指定所属项目']);
+            }
+            if ($taskId <= 0) {
+                return resultArray(['error' => '缺少任务参数，无法上传项目附件']);
+            }
+            # 查询任务真实 work_id，校验任务确实属于该项目（防止伪造/跨项目 task_id）
+            $realWorkId = $fileModel->getTaskWorkId($taskId);
+            if ($realWorkId <= 0 || $realWorkId !== $workId) {
+                return resultArray(['error' => '任务不属于当前项目，无法上传附件']);
+            }
+            # 权限：项目「任务添加附件」
+            if (!$this->checkWorkOperationAuth('uploadTaskFile', $workId, $userId)) {
+                return resultArray(['error' => '无权上传该附件']);
+            }
+        }
+
         $type     = $this->param['type'];
         $files    = request()->file('file');
         $imgs     = request()->file('img');
         $i        = 0;
         $newFiles = [];
-
-        # 项目上传附件权限
-        if (!empty($this->param['module']) && $this->param['module'] == 'work_task' && !empty($this->param['work_id'])) {
-            if (!$this->checkWorkOperationAuth('uploadTaskFile', $this->param['work_id'], $this->userInfo['id'])) {
-                header('Content-Type:application/json; charset=utf-8');
-                exit(json_encode(['code' => 102, 'error' => '无权操作！']));
-            }
-        }
 
         if (!empty($type) && in_array($type, ['img', 'file'])) {
             # todo 兼容11.0前端
@@ -101,19 +120,18 @@ class File extends ApiCommon
         }
 
 
-        $fileModel = model('File');
         $param = $this->param;
-        $param['create_user_id'] = $this->userInfo['id'];
+        $param['create_user_id'] = $userId;
         $res = $fileModel->createData($newFiles, $param);
 		if($res){
 			return resultArray(['data' => $res]);
 		} else {
 			return resultArray(['error' => $fileModel->getError()]);
 		}
-        
+
     }
 
-	/**
+    /**
      * 附件删除
      * @author Michael_xu
      * @param 通过 save_name 作为条件 来删除附件
@@ -123,15 +141,42 @@ class File extends ApiCommon
     {
         $fileModel = model('File');
         $param = $this->param;
+        $userId = $this->userInfo['id'];
 
-        # 项目删除附件权限
-        if (!empty($this->param['module']) && $this->param['module'] == 'work_task' && !empty($this->param['work_id'])) {
-            if (!$this->checkWorkOperationAuth('deleteTaskFile', $this->param['work_id'], $this->userInfo['id'])) {
-                header('Content-Type:application/json; charset=utf-8');
-                exit(json_encode(['code' => 102, 'error' => '无权操作！']));
-            }
+        # 1. 解析并校验 file_id / save_name 一致性（两者同时给且指向不同附件则拒绝）
+        list($idOk, $fileId, $idErr) = $fileModel->resolveFileId($param);
+        if (!$idOk) {
+            return resultArray(['error' => $idErr]);
         }
 
+        $workId = (int)($param['work_id'] ?? 0);
+
+        # 2. 后端依据真实 work_task_file 关联判定是否项目附件（不依赖前端是否传 work_id）
+        if ($fileModel->hasWorkTaskRelation($fileId)) {
+            # 项目附件：work_id 必须存在、必须归属本项目、必须有 deleteTaskFile 权限
+            if ($workId <= 0) {
+                return resultArray(['error' => '项目附件必须指定所属项目']);
+            }
+            if (!$this->checkWorkOperationAuth('deleteTaskFile', $workId, $userId)) {
+                return resultArray(['error' => '无权删除该附件']);
+            }
+            if (!$fileModel->isWorkTaskFileInProject($fileId, $workId)) {
+                return resultArray(['error' => '该附件不属于当前项目，无法删除']);
+            }
+            $res = $fileModel->deleteWorkTaskFileInProject($fileId, $workId);
+            if (!$res) {
+                return resultArray(['error' => $fileModel->getError()]);
+            }
+            return resultArray(['data' => '删除成功']);
+        }
+
+        # 3. 非项目附件：若请求声称是项目附件（传 work_id 或 module=work_task）则拒绝，防止伪造 module 操作
+        $claimedProject = $workId > 0 || (isset($param['module']) && $param['module'] === 'work_task');
+        if ($claimedProject) {
+            return resultArray(['error' => '该附件不属于任何项目，无法按项目附件删除']);
+        }
+
+        # 4. 真正的非项目附件（CRM/OA 等）保留原有通用流程
         $res = $fileModel->delFileBySaveName($param['save_name'], $param);
         if (!$res) {
             return resultArray(['error' => $fileModel->getError()]);
@@ -166,6 +211,35 @@ class File extends ApiCommon
     {
         $fileModel = model('File');
         $param = $this->param;
+        $userId = $this->userInfo['id'];
+
+        # 1. 解析并校验 file_id / save_name 一致性
+        list($idOk, $fileId, $idErr) = $fileModel->resolveFileId($param);
+        if (!$idOk) {
+            return resultArray(['error' => $idErr]);
+        }
+
+        $workId = (int)($param['work_id'] ?? 0);
+
+        # 2. 项目附件（真实 work_task_file 关联）：重命名与删除执行相同的归属、权限检查
+        if ($fileModel->hasWorkTaskRelation($fileId)) {
+            if ($workId <= 0) {
+                return resultArray(['error' => '项目附件必须指定所属项目']);
+            }
+            if (!$this->checkWorkOperationAuth('deleteTaskFile', $workId, $userId)) {
+                return resultArray(['error' => '无权重命名该附件']);
+            }
+            if (!$fileModel->isWorkTaskFileInProject($fileId, $workId)) {
+                return resultArray(['error' => '该附件不属于当前项目，无法重命名']);
+            }
+        } else {
+            # 非项目附件：若请求声称是项目附件则拒绝，防止伪造 module 越权重命名
+            $claimedProject = $workId > 0 || (isset($param['module']) && $param['module'] === 'work_task');
+            if ($claimedProject) {
+                return resultArray(['error' => '该附件不属于任何项目，无法按项目附件重命名']);
+            }
+        }
+
         if ( $param['save_name'] && $param['name'] ) {
             $ret = $fileModel->updateNameBySaveName($param['save_name'],$param['name']);
             if ($ret) {

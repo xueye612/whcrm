@@ -118,9 +118,9 @@ export default [
       }
     }]
   },
-  // ===== P4 外包项目（权限链 work/outsource） =====
+  // ===== P4 外包项目奖金分配 =====
   {
-    ...layout('/project', { permissions: ['work', 'outsource', 'projectread'] }),
+    ...layout('/project', { permissions: ['project'] }),
     children: [{
       path: 'outsource',
       component: () => import('@/views/pm/outsource'),
