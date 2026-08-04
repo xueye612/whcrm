@@ -649,12 +649,12 @@ class Task extends ApiCommon
         $data = [];
         //部门编辑
         $structure_ids = '';
-        if ($param['structure_ids']) {
+        if (!empty($param['structure_ids'])) {
             $structure_ids = arrayToString($param['structure_ids']);
         }
         $owner_user_id = '';
         $sendUserArr = [];
-        if ($param['owner_userids']) {
+        if (!empty($param['owner_userids'])) {
             $owner_user_id = arrayToString($param['owner_userids']);
             // 前端可能以逗号拼接字符串提交，统一转为数组再遍历，避免 PHP8 TypeError
             $ownerUserIds = stringToArray($param['owner_userids']);
@@ -663,9 +663,9 @@ class Task extends ApiCommon
                     $sendUserArr[] = $v;
                 }
             }
-            // $content = $userInfo['realname'].'邀请您参与《'.$taskInfo['name'].'》项目，请及时查看';
-            // if ($sendUserArr) sendMessage($sendUserArr,$content,1);
-            actionLog($param['task_id'], $param['owner_user_id'], $param['structure_ids'], '修改了参与人');
+            // 注意：前端 editOwnerList 只提交 work_id/task_id/owner_userids，
+            // 不提交 owner_user_id/structure_ids，必须用本地变量，避免 PHP8 未定义键告警转异常导致保存中断
+            actionLog($param['task_id'], $owner_user_id, $structure_ids, '修改了参与人');
         }
         $data['structure_ids'] = $structure_ids;
         $data['owner_user_id'] = $owner_user_id;

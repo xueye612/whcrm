@@ -32,10 +32,14 @@ check(taskCell.indexOf('task-wr-compact') !== -1, 'TaskCell 应渲染 W/R/K 标�
 check(taskCell.indexOf('wrkTooltip(data)') !== -1, 'TaskCell 应有 wrkTooltip 方法')
 check(taskCell.indexOf('data.initW || data.init_w') !== -1, 'TaskCell 应读取 initW/init_w 字段')
 
-// === 3. 参与者修改：后端 updateOwner 应用 stringToArray 兼容字符串入参 ===
-var updateOwnerSection = taskPhp.substring(taskPhp.indexOf('function updateOwner'), taskPhp.indexOf('function updateOwner') + 1200)
+// === 3. 参与者修改：后端 updateOwner 兼容字符串入参且无未定义键 ===
+var updateOwnerSection = taskPhp.substring(taskPhp.indexOf('function updateOwner'), taskPhp.indexOf('function updateOwner') + 2200)
 check(updateOwnerSection.indexOf("stringToArray(\$param['owner_userids'])") !== -1, 'updateOwner 应使用 stringToArray 规范化 owner_userids 再遍历')
 check(updateOwnerSection.indexOf("foreach (\$param['owner_userids']") === -1, 'updateOwner 不得直接 foreach 字符串入参 owner_userids')
+check(updateOwnerSection.indexOf("!empty(\$param['owner_userids'])") !== -1, 'updateOwner 应以 !empty 判断 owner_userids，避免 PHP8 未定义键告警')
+check(updateOwnerSection.indexOf("!empty(\$param['structure_ids'])") !== -1, 'updateOwner 应以 !empty 判断 structure_ids，避免 PHP8 未定义键告警')
+check(updateOwnerSection.indexOf("actionLog(\$param['task_id'], \$owner_user_id, \$structure_ids") !== -1, 'updateOwner 的 actionLog 应使用本地变量 $owner_user_id/$structure_ids（前端不提交这两个键）')
+check(updateOwnerSection.indexOf("actionLog(\$param['task_id'], \$param['owner_user_id']") === -1, 'updateOwner 的 actionLog 不得读取前端未提交的 $param[owner_user_id]，否则 PHP8 未定义键转异常中断保存')
 
 // === 4a. 工作台当日任务区分：当天到期不算逾期 ===
 check(workbench.indexOf('deadline-today') !== -1, '工作台应有当日任务样式 deadline-today')

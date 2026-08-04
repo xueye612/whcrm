@@ -1198,8 +1198,11 @@ export default {
       })
         .then(res => {
           this.taskData.owner_list = users
+          this.$message.success('参与人已更新')
         })
-        .catch(() => {})
+        .catch(err => {
+          this.$message.error((err && (err.msg || err.data)) || '参与人修改失败')
+        })
     },
 
     /**
@@ -1214,8 +1217,11 @@ export default {
       })
         .then(res => {
           this.taskData.owner_list.splice(index, 1)
+          this.$message.success('已移除参与人')
         })
-        .catch(() => {})
+        .catch(err => {
+          this.$message.error((err && (err.msg || err.data)) || '参与人移除失败')
+        })
     },
 
     /**
