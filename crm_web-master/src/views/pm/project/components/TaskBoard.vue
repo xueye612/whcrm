@@ -146,6 +146,14 @@
                     class="wukong wukong-time-task"/>
                   <span :style="{'color': element.is_end == 1 && !element.checked ? 'red': '#999'}">{{ element.stop_time | moment("YYYY-MM-DD") }}截止</span>
                 </div>
+                <el-tooltip
+                  v-if="(element.initW || element.init_w) || (element.initR || element.init_r) || (element.initK || element.init_k)"
+                  placement="top"
+                  effect="light"
+                  popper-class="tooltip-change-border task-tooltip">
+                  <div slot="content">{{ wrkTooltip(element) }}</div>
+                  <span class="task-wr-compact">{{ [element.initW || element.init_w, element.initR || element.init_r, element.initK || element.init_k].filter(Boolean).join(' · ') }}</span>
+                </el-tooltip>
                 <div
                   v-if="element.childAllCount > 0 || element.subdonecount>0 ||element.subcount>0"
                   class="img-box">
@@ -314,7 +322,18 @@ export default {
     }
   },
 
-  methods: {}
+  methods: {
+    wrkTooltip(element) {
+      var parts = []
+      var w = element.initW || element.init_w
+      var r = element.initR || element.init_r
+      var k = element.initK || element.init_k
+      if (w) parts.push(w + '：工作量')
+      if (r) parts.push(r + '：风险')
+      if (k) parts.push(k + '：专业确认')
+      return parts.join('； ')
+    }
+  }
 }
 </script>
 
@@ -530,6 +549,21 @@ export default {
 
 .wukong {
   font-size: 14px;
+}
+
+.task-wr-compact {
+  display: inline-block;
+  height: 20px;
+  line-height: 20px;
+  padding: 0 8px;
+  border-radius: $xr-border-radius-base;
+  background: #ecf5ff;
+  color: #409eff;
+  margin-right: 6px;
+  margin-bottom: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
 }
 
 .item-label {

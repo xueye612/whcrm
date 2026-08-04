@@ -581,7 +581,7 @@ import {
   workTaskDeleteAPI,
   workSubTaskDeleteAPI
 } from '@/api/pm/projectTask'
-import { setStartTimeAPI } from '@/api/task/workflow'
+import { setStartTimeAPI, workflowReadAPI } from '@/api/task/workflow'
 // 项目参与人
 import { workWorkOwnerListAPI } from '@/api/pm/project'
 import {
@@ -1315,24 +1315,42 @@ export default {
      */
     setStartTime(val) {
       const params = { task_id: this.id, start_time: val || '' }
-      // 传入当前工作流版本号
-      params.version = (this.$refs && this.$refs.taskWorkflowPanel && this.$refs.taskWorkflowPanel.data && this.$refs.taskWorkflowPanel.data.version) || 0
-      setStartTimeAPI(params)
-        .then(res => {
-          const data = res.data || res
-          if (data.start_time !== undefined) {
-            this.$set(this.taskData, 'start_time', data.start_time ? this.formatStartTime(data.start_time) : '')
-          }
-          this.$message.success(val ? '开始时间已更新' : '开始时间已删除')
-          // 刷新工作流面板和详情
-          this.$emit('on-handle', {
-            type: 'change-start-time',
-            value: val,
-            index: this.detailIndex,
-            section: this.detailSection
+      // 传入当前工作流版本号；若工作流面板尚未加载完成，按需拉取，避免后端"必须提供有效版本号"
+      let version = (this.$refs && this.$refs.taskWorkflowPanel && this.$refs.taskWorkflowPanel.data && this.$refs.taskWorkflowPanel.data.version) || 0
+      const doRequest = () => {
+        params.version = version
+        setStartTimeAPI(params)
+          .then(res => {
+            const data = res.data || res
+            if (data.start_time !== undefined) {
+              this.$set(this.taskData, 'start_time', data.start_time ? this.formatStartTime(data.start_time) : '')
+            }
+            this.$message.success(val ? '开始时间已更新' : '开始时间已删除')
+            // 刷新工作流面板和详情
+            this.$emit('on-handle', {
+              type: 'change-start-time',
+              value: val,
+              index: this.detailIndex,
+              section: this.detailSection
+            })
           })
-        })
-        .catch(() => {})
+          .catch(() => {})
+      }
+      if (version > 0) {
+        doRequest()
+      } else {
+        // 工作流面板尚未就绪：按需读取工作流版本号（无工作流任务后端不要求版本号，version 保持 0）
+        workflowReadAPI({ task_id: this.id })
+          .then(wfRes => {
+            const wfData = (wfRes && (wfRes.data || wfRes)) || {}
+            version = wfData.version || 0
+            if (this.$refs && this.$refs.taskWorkflowPanel) {
+              this.$refs.taskWorkflowPanel.data = Object.assign({}, this.$refs.taskWorkflowPanel.data, wfData)
+            }
+            doRequest()
+          })
+          .catch(() => { doRequest() })
+      }
     },
 
     formatStartTime(ts) {

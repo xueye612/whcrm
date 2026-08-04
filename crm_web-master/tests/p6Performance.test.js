@@ -145,4 +145,17 @@ check(perfVue.indexOf('listError') !== -1, '前端应追踪列表加载错误状
 check(perfVue.indexOf('previewWeighted') !== -1, '录分弹窗应有加权得分实时预览')
 check(perfVue.indexOf('adjust_reason') !== -1, '录分弹窗应有调整说明输入')
 
+// ===================== 退回必须填写原因（写审计）检查 =====================
+// 16. 退回流程：前端必须收集原因并发送，后端必须校验原因并写审计
+var summaryReturnSection = perfCtrl.substring(perfCtrl.indexOf('function summaryReturn('), perfCtrl.indexOf('function summaryReturn(') + 1500)
+check(summaryReturnSection.indexOf('退回必须填写原因（写审计）') !== -1, '后端 summaryReturn 必须校验原因非空并返回明确错误')
+check(summaryReturnSection.indexOf('safeInsertAudit') !== -1, '后端 summaryReturn 必须写审计')
+check(summaryReturnSection.indexOf('SUMMARY_RETURNED') !== -1, '后端 summaryReturn 必须把状态改为已退回')
+var returnVueSection = perfVue.substring(perfVue.indexOf('async returnSummary('), perfVue.indexOf('async returnSummary(') + 1200)
+check(returnVueSection.indexOf('summaryReturn') !== -1, '前端 returnSummary 应调用 summaryReturn 接口')
+check(returnVueSection.indexOf('reason') !== -1, '前端 returnSummary 必须收集并提交退回原因')
+check(returnVueSection.indexOf('inputValidator') !== -1, '前端 returnSummary 应在弹窗中强制校验原因非空')
+check(returnVueSection.indexOf('退回必须填写原因') !== -1, '前端 returnSummary 应提示退回必须填写原因')
+check(routeCrm.indexOf('summaryReturn') !== -1, 'summaryReturn 路由应注册')
+
 console.log('P6 performance frontend test passed (' + count + ' assertions)')

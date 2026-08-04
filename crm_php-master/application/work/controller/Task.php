@@ -656,7 +656,9 @@ class Task extends ApiCommon
         $sendUserArr = [];
         if ($param['owner_userids']) {
             $owner_user_id = arrayToString($param['owner_userids']);
-            foreach ($param['owner_userids'] as $k => $v) {
+            // 前端可能以逗号拼接字符串提交，统一转为数组再遍历，避免 PHP8 TypeError
+            $ownerUserIds = stringToArray($param['owner_userids']);
+            foreach ($ownerUserIds as $k => $v) {
                 if (!in_array($v, stringToArray($taskInfo['owner_user_id']))) {
                     $sendUserArr[] = $v;
                 }

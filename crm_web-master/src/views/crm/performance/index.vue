@@ -583,12 +583,27 @@ export default {
       }).catch(() => {}).finally(() => { this.acting = false })
     },
     async returnSummary(row) {
+      var reason
       try {
-        await request({ url: 'crm/performance/summaryReturn', method: 'post', data: { perf_id: row.perf_id }})
+        var res = await this.$prompt('请填写退回原因（必填，将记入审计）：', '退回绩效', {
+          confirmButtonText: '确认退回',
+          cancelButtonText: '取消',
+          inputType: 'textarea',
+          inputPlaceholder: '请填写退回原因（必填）',
+          inputValidator: function(v) { return (v && String(v).trim() !== '') ? true : '退回必须填写原因' }
+        })
+        reason = (res.value || '').trim()
+      } catch (e) { return }
+      if (!reason) { this.$message.warning('退回必须填写原因'); return }
+      this.acting = true
+      try {
+        await request({ url: 'crm/performance/summaryReturn', method: 'post', data: { perf_id: row.perf_id, reason: reason }})
         this.$message.success('已退回')
         this.fetchList()
         if (this.detailDialog) this.fetchDetail()
-      } catch (e) { /* 忽略 */ }
+      } catch (e) { /* 全局拦截器提示 */ } finally {
+        this.acting = false
+      }
     },
     showFacts(row) {
       if (!row.user_id || Number(row.user_id) <= 0) {

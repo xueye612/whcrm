@@ -68,6 +68,15 @@
         截止时间{{ data.stop_time||data.stopTime }}
       </span>
 
+      <el-tooltip
+        v-if="(data.initW || data.init_w) || (data.initR || data.init_r) || (data.initK || data.init_k)"
+        placement="top"
+        effect="light"
+        popper-class="tooltip-change-border">
+        <div slot="content">{{ wrkTooltip(data) }}</div>
+        <span class="task-wr-compact">{{ [data.initW || data.init_w, data.initR || data.init_r, data.initK || data.init_k].filter(Boolean).join(' · ') }}</span>
+      </el-tooltip>
+
       <div class="img-group">
         <div
           v-if="data.relationCount"
@@ -151,6 +160,16 @@ export default {
   watch: {},
   mounted() {},
   methods: {
+    wrkTooltip(data) {
+      var parts = []
+      var w = data.initW || data.init_w
+      var r = data.initR || data.init_r
+      var k = data.initK || data.init_k
+      if (w) parts.push(w + '：工作量')
+      if (r) parts.push(r + '：风险')
+      if (k) parts.push(k + '：专业确认')
+      return parts.join('； ')
+    },
     async confirmLedgerSyncChoice(status) {
       try {
         await this.$confirm(
@@ -216,6 +235,20 @@ export default {
 }
 @mixin color9 {
   color: #999;
+}
+.task-wr-compact {
+  display: inline-block;
+  height: 20px;
+  line-height: 20px;
+  padding: 0 8px;
+  border-radius: 3px;
+  background: #ecf5ff;
+  color: #409eff;
+  margin-left: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  @include v-align;
 }
 .popover-btn-group {
   margin: -12px;

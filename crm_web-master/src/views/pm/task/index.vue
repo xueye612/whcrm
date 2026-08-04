@@ -97,7 +97,7 @@
         v-loading="loading"
         class="kanban-columns">
         <div
-          v-for="(item, index) in displayTaskList"
+          v-for="(item, index) in taskList"
           :key="index"
           class="board-column">
           <div class="board-column-wrapper">
@@ -119,9 +119,10 @@
               :id="index"
               class="board-column-content"
               @end="moveEndTask">
-              <div v-if="!item.list.length" class="col-empty-hint">暂无任务</div>
+              <div v-if="columnIsEmpty(item)" class="col-empty-hint">暂无任务</div>
               <div
                 v-for="(element, i) in item.list"
+                v-show="showCompleted || !element.checked"
                 ref="taskRow"
                 :key="i"
                 :class="element.checked ? 'board-item board-item-active' : 'board-item'"
@@ -337,17 +338,6 @@ export default {
       if (this.screeningValue.tagIds && this.screeningValue.tagIds.length) c++
       if (this.screeningValue.timeId) c++
       return c
-    },
-    displayTaskList() {
-      if (this.showCompleted) return this.taskList
-      return this.taskList.map(function(col) {
-        return {
-          title: col.title,
-          is_top: col.is_top,
-          checkedNum: col.checkedNum,
-          list: col.list.filter(function(t) { return !t.checked })
-        }
-      })
     }
   },
 
@@ -397,6 +387,10 @@ export default {
       if (!original) return 0
       return original.list.filter(function(t) { return t.checked }).length
     },
+    columnIsEmpty(item) {
+      if (this.showCompleted) return !item.list.length
+      return item.list.length === 0 || item.list.every(function(t) { return t.checked })
+    },
     deadlineText(element) {
       if (!element.stop_time) return ''
       var ts = element.stop_time
@@ -407,16 +401,28 @@ export default {
       var mm = String(d.getMonth() + 1).padStart(2, '0')
       var dd = String(d.getDate()).padStart(2, '0')
       var dateStr = yy === now.getFullYear() ? (mm + '-' + dd) : (yy + '-' + mm + '-' + dd)
-      var isOverdue = element.is_end == 1 && !element.checked
+      if (element.checked) return dateStr + ' 截止'
+      // 区分当日任务：当天到期不算逾期
+      var isToday = yy === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate()
+      if (isToday) return '今日 ' + dateStr
+      // 逾期：截止日历日已严格早于今天（后端 is_end 对当天也会置 1，这里以日历日为准）
+      var startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
+      var isOverdue = element.is_end == 1 || d.getTime() < startOfToday
       if (isOverdue) return '逾期 ' + dateStr
       return dateStr + ' 截止'
     },
     deadlineClass(element) {
       if (!element.stop_time) return ''
-      if (element.is_end == 1 && !element.checked) return 'deadline-overdue'
+      if (element.checked) return ''
       var ts = element.stop_time
       var d = new Date(typeof ts === 'number' ? ts * 1000 : ts)
+      if (isNaN(d.getTime())) return ''
       var now = new Date()
+      var isToday = d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate()
+      if (isToday) return 'deadline-today'
+      var startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
+      var isOverdue = element.is_end == 1 || d.getTime() < startOfToday
+      if (isOverdue) return 'deadline-overdue'
       var diff = (d.getTime() - now.getTime()) / 86400000
       if (diff >= 0 && diff <= 3) return 'deadline-near'
       return ''
@@ -1018,6 +1024,7 @@ export default {
   color: #606266;
 }
 .deadline-overdue { color: #F56C6C !important; font-weight: 600; }
+.deadline-today { color: #E6A23C !important; font-weight: 600; }
 .deadline-near { color: #E6A23C; }
 
 /* 空栏目 */

@@ -1,6 +1,7 @@
 <template>
   <transition
     name="slide-fade"
+    appear
     @after-enter="afterEnter">
     <el-card
       id="slide"
