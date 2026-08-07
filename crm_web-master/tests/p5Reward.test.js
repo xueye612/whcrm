@@ -109,6 +109,8 @@ check(rewardPhp.includes("'candidatedelete'"), 'backend checks reward/candidateD
 check(rewardPhp.includes("'operation_type' => 'delete'"), 'backend preserves delete audit')
 check(rewardPhp.includes('已结算批次中的记录不能直接删除'), 'backend blocks deletion after batch settlement')
 check(rewardPhp.includes('isRewardVisibilityAdmin'), 'backend has dedicated reward visibility administrator check')
+check(rewardPhp.includes('function isRewardVisibilityAdmin($userInfo)'), 'reward visibility accepts framework user objects')
+check(rewardPhp.includes('function candidateVisibleToUser(array $candidate, $userInfo)'), 'candidate visibility accepts framework user objects')
 check(rewardPhp.includes('15628812133'), 'only the designated reward administrator account can view all records')
 check(rewardPhp.includes('candidateVisibleToUser'), 'backend protects candidate detail and operations with relation scope')
 check(rewardPhp.includes("whereOr('r.create_user_id'"), 'candidate list includes records created by current user')

@@ -436,7 +436,7 @@ class Reward extends ApiCommon
     }
 
     /** 指定奖励管理员账号可查看全部奖惩，其余账号仅查看本人相关数据。 */
-    private function isRewardVisibilityAdmin(array $userInfo)
+    private function isRewardVisibilityAdmin($userInfo)
     {
         $adminLogin = '15628812133';
         if ((string)($userInfo['username'] ?? '') === $adminLogin || (string)($userInfo['mobile'] ?? '') === $adminLogin) {
@@ -449,7 +449,7 @@ class Reward extends ApiCommon
     }
 
     /** 判断候选记录是否与当前账号相关。 */
-    private function candidateVisibleToUser(array $candidate, array $userInfo)
+    private function candidateVisibleToUser(array $candidate, $userInfo)
     {
         if ($this->isRewardVisibilityAdmin($userInfo)) return true;
         $userId = (int)($userInfo['id'] ?? 0);
