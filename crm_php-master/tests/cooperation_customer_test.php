@@ -73,6 +73,8 @@ cooperationCheck(substr_count($customerController, 'syncFirstEffectiveContact(')
 cooperationCheck(substr_count($customerController, 'syncFirstFormalExchange(') >= 3, '新增、编辑和快捷推进均接入正式交流绩效同步');
 cooperationCheck(strpos($customerController, 'recordMilestoneEvidenceActivity') !== false, '阶段推进将有效联系和正式交流证据写入客户活动');
 cooperationCheck(strpos($customerController, "checkPerByAction('crm', 'customer', 'update')") !== false, '合作阶段快捷调整复用客户更新权限');
+cooperationCheck(strpos($customerController, "rwPre(\$userInfo['id'], \$permissionCustomer['ro_user_id'], \$permissionCustomer['rw_user_id'], 'update')") !== false,
+    '合作阶段快捷调整允许客户读写团队成员推进');
 $crmRoutes = file_get_contents(__DIR__ . '/../config/route_crm.php');
 cooperationCheck(strpos($crmRoutes, "'crm/customer/cooperationStage'") !== false, '合作阶段快捷接口已注册CRM路由');
 
@@ -84,6 +86,11 @@ $customerModel = file_get_contents(__DIR__ . '/../application/crm/model/Customer
 cooperationCheck(strpos($customerModel, "updateActionLog(\$user_id, 'crm_customer', \$customer_id, \$dataInfo->data, \$param)") !== false, '合作阶段及核实人员变化复用客户字段变更日志');
 cooperationCheck(strpos($customerModel, "whereOr('customer.cooperation_stage'") !== false, '客户列表关键词支持检索合作阶段');
 cooperationCheck(strpos($customerModel, "['cooperation_type', 'cooperation_stage']") !== false, '客户列表固定返回合作类型和阶段供标识展示');
+cooperationCheck(strpos($customerModel, "getFieldByFormType('crm_customer', 'single_user')") !== false, '客户列表排序识别单选人员字段');
+
+$crmCommon = file_get_contents(__DIR__ . '/../application/crm/common.php');
+cooperationCheck(strpos($crmCommon, "getFieldByFormType(\$types, 'single_user')") !== false,
+    '客户列表将发现人和核实人单选ID格式化为真实姓名');
 
 $performanceController = file_get_contents(__DIR__ . '/../application/crm/controller/Performance.php');
 cooperationCheck(strpos($performanceController, "'合作企业' . \$nodeName . '绩效事实审核状态变更为：'") !== false, '核实及有效联系事实审核变化同步记录到客户操作日志');

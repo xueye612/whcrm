@@ -225,7 +225,10 @@ class Customer extends Common
 				$indexField[] = $cooperationField;
 			}
 		}
-		$userField = $fieldModel->getFieldByFormType('crm_customer', 'user'); // 人员类型
+		$userField = array_values(array_unique(array_merge(
+			(array)$fieldModel->getFieldByFormType('crm_customer', 'user'),
+			(array)$fieldModel->getFieldByFormType('crm_customer', 'single_user')
+		))); // 人员类型（多选人员 + 单选人员）
 		$structureField = $fieldModel->getFieldByFormType('crm_customer', 'structure'); // 部门类型
         # 处理人员和部门类型的排序报错问题(前端传来的是包含_name的别名字段)
         $temporaryField = str_replace('_name', '', $order_field);

@@ -217,7 +217,18 @@ class Customer extends ApiCommon
         if ($customerId <= 0 || $newStage === '') {
             return resultArray(['error' => '客户和合作阶段不能为空']);
         }
-        if (!checkPerByAction('crm', 'customer', 'update') || !$customerModel->checkData($customerId, 1)) {
+        $permissionCustomer = Db::name('crm_customer')
+            ->field('owner_user_id,ro_user_id,rw_user_id')
+            ->where('customer_id', $customerId)
+            ->find();
+        $userModel = new \app\admin\model\User();
+        $updateAuthIds = $userModel->getUserByPer('crm', 'customer', 'update');
+        $teamWritePermission = $permissionCustomer
+            ? $userModel->rwPre($userInfo['id'], $permissionCustomer['ro_user_id'], $permissionCustomer['rw_user_id'], 'update')
+            : false;
+        $ownerInUpdateScope = $permissionCustomer
+            && in_array((int)$permissionCustomer['owner_user_id'], array_map('intval', $updateAuthIds), true);
+        if (!checkPerByAction('crm', 'customer', 'update') || (!$ownerInUpdateScope && !$teamWritePermission)) {
             return resultArray(['error' => '无权修改该客户']);
         }
 

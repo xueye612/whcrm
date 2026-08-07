@@ -221,7 +221,10 @@ function decrypt($data, $key = '72-crm')
 function getFieldData($list,$types,$user_id){
     $fieldModel  = new \app\admin\model\Field();
     $indexField = $fieldModel->getIndexField($types, $user_id, 1) ? : array('name'); // 列表展示字段
-    $userField = $fieldModel->getFieldByFormType($types, 'user'); // 人员类型
+    $userField = array_values(array_unique(array_merge(
+        (array)$fieldModel->getFieldByFormType($types, 'user'),
+        (array)$fieldModel->getFieldByFormType($types, 'single_user')
+    ))); // 人员类型（多选人员 + 单选人员）
     $structureField = $fieldModel->getFieldByFormType($types, 'structure'); // 部门类型
     $datetimeField = $fieldModel->getFieldByFormType($types, 'datetime'); // 日期时间类型
     $booleanField = $fieldModel->getFieldByFormType($types, 'boolean_value'); // 布尔值类型字段
