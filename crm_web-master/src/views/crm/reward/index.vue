@@ -395,7 +395,7 @@
         <div v-if="ruleSubTab==='milestone'">
           <div class="rp-card rp-info-banner">
             <i class="el-icon-info" />
-            <span>里程碑奖励不是固定奖项，按推进档位与奖金池比例动态核算。下方为系统奖励政策参考，最终金额与审核状态以实际审核结果为准。</span>
+            <span>里程碑奖励不是固定奖项，按推进档位与奖金池比例动态核算。下方仅展示奖励政策和审核要求，不代表已生成奖励候选；实际候选及审核状态请在“奖惩记录”中查看。</span>
           </div>
 
           <!-- 项目奖金池分配（存在配置时优先展示） -->
@@ -431,10 +431,7 @@
                 <template slot-scope="s"><el-tag :type="s.row.special ? 'warning' : 'info'" size="mini">{{ s.row.review }}</el-tag></template>
               </el-table-column>
               <el-table-column label="最终金额" min-width="120" align="right">
-                <template slot-scope="s"><span class="rp-ms-final">审核确认</span></template>
-              </el-table-column>
-              <el-table-column label="审核状态" min-width="110" align="center">
-                <template slot-scope="s"><el-tag type="info" size="mini" effect="plain">待审核</el-tag></template>
+                <template slot-scope="s"><span class="rp-ms-final">候选生成后确认</span></template>
               </el-table-column>
             </el-table>
             <div class="rp-ms-note">L5（3000 元以上）须提交专项审批，不可自动结算。</div>
@@ -1387,7 +1384,18 @@ export default {
       this.ruleLoading = true
       try {
         const r = await rewardManualRuleListAPI({})
-        this.manualRules = r.data || []
+        this.manualRules = (r.data || []).map(function(rule) {
+          return {
+            ...rule,
+            manual_rule_id: Number(rule.manual_rule_id),
+            amount: Number(rule.amount) || 0,
+            amount_min: Number(rule.amount_min) || 0,
+            amount_max: Number(rule.amount_max) || 0,
+            pool_pct: Number(rule.pool_pct) || 0,
+            is_enabled: Number(rule.is_enabled) === 1,
+            sort_order: Number(rule.sort_order) || 0
+          }
+        })
       } catch (e) { this.manualRules = [] } finally {
         this.ruleLoading = false
       }
@@ -1496,7 +1504,7 @@ export default {
     },
     openRuleEdit(rule) {
       if (rule) {
-        this.ruleForm = { manual_rule_id: rule.manual_rule_id, rule_name: rule.rule_name, direction: rule.direction, amount: Number(rule.amount), calc_mode: rule.calc_mode || 'fixed', amount_min: Number(rule.amount_min) || 0, amount_max: Number(rule.amount_max) || 0, pool_pct: Number(rule.pool_pct) || 0, category: rule.category || '', description: rule.description || '', is_enabled: !!rule.is_enabled, sort_order: rule.sort_order || 0 }
+        this.ruleForm = { manual_rule_id: rule.manual_rule_id, rule_name: rule.rule_name, direction: rule.direction, amount: Number(rule.amount), calc_mode: rule.calc_mode || 'fixed', amount_min: Number(rule.amount_min) || 0, amount_max: Number(rule.amount_max) || 0, pool_pct: Number(rule.pool_pct) || 0, category: rule.category || '', description: rule.description || '', is_enabled: Number(rule.is_enabled) === 1 || rule.is_enabled === true, sort_order: Number(rule.sort_order) || 0 }
       } else {
         this.ruleForm = this.defaultRuleForm()
       }
@@ -1509,7 +1517,15 @@ export default {
       if (this.ruleForm.calc_mode === 'pool' && (this.ruleForm.pool_pct <= 0 || this.ruleForm.pool_pct > 100)) { this.$message.warning('池比例必须在0-100之间'); return }
       this.ruleSaving = true
       try {
-        await rewardManualRuleSaveAPI(this.ruleForm)
+        await rewardManualRuleSaveAPI({
+          ...this.ruleForm,
+          amount: Number(this.ruleForm.amount) || 0,
+          amount_min: Number(this.ruleForm.amount_min) || 0,
+          amount_max: Number(this.ruleForm.amount_max) || 0,
+          pool_pct: Number(this.ruleForm.pool_pct) || 0,
+          is_enabled: this.ruleForm.is_enabled ? 1 : 0,
+          sort_order: Number(this.ruleForm.sort_order) || 0
+        })
         this.$message.success('保存成功')
         this.ruleDialog = false
         this.fetchManualRules()
@@ -1519,7 +1535,10 @@ export default {
     },
     async toggleRule(rule) {
       try {
-        await rewardManualRuleSaveAPI({ manual_rule_id: rule.manual_rule_id, rule_name: rule.rule_name, direction: rule.direction, amount: rule.amount, description: rule.description, is_enabled: rule.is_enabled ? 0 : 1, sort_order: rule.sort_order })
+        await rewardManualRuleSaveAPI({
+          manual_rule_id: rule.manual_rule_id,
+          is_enabled: rule.is_enabled ? 0 : 1
+        })
         this.$message.success(rule.is_enabled ? '已停用' : '已启用')
         this.fetchManualRules()
       } catch (e) { /* 全局拦截器提示 */ }

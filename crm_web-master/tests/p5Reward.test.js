@@ -1,6 +1,6 @@
 'use strict'
 const fs = require('fs'); const path = require('path'); let count = 0
-function check(c, m) { if (!c) { console.error('FAIL: ' + m); process.exit(1) }; count++ }
+function check(c, m) { if (!c) { console.error('FAIL: ' + m); process.exit(1) } count++ }
 const ROOT = path.resolve(__dirname, '..')
 
 // Verify deleted modules
@@ -34,6 +34,8 @@ check(rewardVue.includes('添加奖励'), 'candidate form has explicit reward en
 check(rewardVue.includes('添加处罚'), 'candidate form has explicit penalty entry')
 check(rewardVue.includes('candidateManualRules'), 'candidate form filters projects by reward or penalty direction')
 check(rewardVue.includes('onCandidateDirectionChange'), 'switching reward/penalty resets the selected project')
+check(rewardVue.includes('is_enabled: Number(rule.is_enabled) === 1'), 'manual rules normalize enabled state from API')
+check(rewardVue.includes('manual_rule_id: rule.manual_rule_id,\n          is_enabled: rule.is_enabled ? 0 : 1'), 'manual rule toggle sends only id and enabled state')
 check(rewardVue.includes('所属日期'), 'candidate form has date')
 check(rewardVue.includes('事由说明'), 'candidate form has reason')
 check(!rewardVue.includes('el-radio-group v-model="form.direction"'), 'candidate form does NOT have direction radio')
@@ -50,6 +52,9 @@ check(rewardVue.includes('usersListIndexAPI'), 'reward page uses usersListIndexA
 check(rewardVue.includes('fetchManualRules'), 'reward page fetches manual rules')
 check(rewardVue.includes('openRuleEdit'), 'reward page has rule edit')
 check(rewardVue.includes('toggleRule'), 'reward page can toggle rule enabled/disabled')
+check(rewardVue.includes('下方仅展示奖励政策和审核要求，不代表已生成奖励候选'), 'milestone policy explains that tiers are not candidate records')
+check(!rewardVue.includes('<el-table-column label="审核状态"'), 'milestone policy table does not show a hard-coded review status')
+check(rewardVue.includes('候选生成后确认'), 'milestone policy defers final amount until a candidate is generated')
 
 // Review with self-review note
 check(rewardVue.includes('openReview'), 'reward page has openReview method')
@@ -95,6 +100,8 @@ check(rewardVue.includes('ruleSubTab'), 'reward page has sub-tabs for manual/sta
 const rewardPhp = fs.readFileSync(path.resolve(__dirname, '../../crm_php-master/application/crm/controller/Reward.php'), 'utf8')
 check(rewardPhp.includes('function manualRuleList'), 'backend has manualRuleList')
 check(rewardPhp.includes('function manualRuleSave'), 'backend has manualRuleSave')
+check(rewardPhp.includes('array_key_exists($key, $param)'), 'manual rule partial update preserves omitted fields')
+check(rewardPhp.includes('区间最小金额不能大于最大金额'), 'manual rule validates range boundaries')
 check(rewardPhp.includes('function candidateDelete'), 'backend has candidateDelete')
 check(rewardPhp.includes('canManageCandidate'), 'backend validates candidate management permission')
 check(rewardPhp.includes('canDeleteCandidate'), 'backend validates independent candidate delete permission')
@@ -110,7 +117,7 @@ check(rewardPhp.includes('relatedCandidateSummary'), 'ordinary user summary is s
 check(rewardPhp.includes("(string)$batch['status'] === '已结算'"), 'settled batch candidates remain protected from deletion')
 check(rewardPhp.includes("Db::name('reward_batch')->where(['batch_id' => $batchId])->update(['total_amount'"), 'deleting from pending batch recalculates its total')
 check(rewardPhp.includes("Db::name('reward_offset')->where(['cand_id' => $candId])->delete()"), 'deleting an offset candidate cleans linked offset rows after audit snapshot')
-check(!rewardPhp.includes("r\\.\\*"), 'backend does not use r.* in queries')
+check(!rewardPhp.includes('r\\.\\*'), 'backend does not use r.* in queries')
 check(rewardPhp.includes('buildCandidateQuery'), 'backend uses separate Query objects')
 check(rewardPhp.includes('safeInsertAudit'), 'backend has safe audit insert helper')
 check(rewardPhp.includes('isSelfCandidate'), 'backend checks self-candidate in review')

@@ -192,6 +192,16 @@ class Reward extends ApiCommon
             }
             if (!empty($param['direction'])) $q->where('direction', $param['direction']);
             $list = $q->order('sort_order asc, manual_rule_id asc')->select();
+            foreach ($list as &$row) {
+                $row['manual_rule_id'] = (int)$row['manual_rule_id'];
+                $row['amount'] = (float)$row['amount'];
+                $row['amount_min'] = (float)$row['amount_min'];
+                $row['amount_max'] = (float)$row['amount_max'];
+                $row['pool_pct'] = (float)$row['pool_pct'];
+                $row['is_enabled'] = (int)$row['is_enabled'];
+                $row['sort_order'] = (int)$row['sort_order'];
+            }
+            unset($row);
         } catch (\Exception $e) {
             \think\Log::record('manualRuleList查询失败（表可能未创建）: ' . $e->getMessage(), 'error');
             $list = [];
@@ -205,33 +215,51 @@ class Reward extends ApiCommon
     public function manualRuleSave()
     {
         $param = $this->param; $userInfo = $this->userInfo;
-        $ruleName = trim((string)($param['rule_name'] ?? ''));
-        $direction = trim((string)($param['direction'] ?? ''));
-        $amount = abs((float)($param['amount'] ?? 0));
-        $calcMode = trim((string)($param['calc_mode'] ?? 'fixed'));
+        $id = (int)($param['manual_rule_id'] ?? 0);
+        $old = [];
+        if ($id > 0) {
+            $old = Db::name('reward_manual_rule')->where('manual_rule_id', $id)->find();
+            if (!$old) return resultArray(['error' => '奖惩项目不存在或已删除']);
+        }
+
+        // 编辑接口允许只提交需要修改的字段；缺失字段必须保留原值，不能回落到 fixed/停用等默认值。
+        $value = function ($key, $default = null) use ($param, $old) {
+            if (array_key_exists($key, $param)) return $param[$key];
+            if (array_key_exists($key, $old)) return $old[$key];
+            return $default;
+        };
+        $ruleName = trim((string)$value('rule_name', ''));
+        $direction = trim((string)$value('direction', ''));
+        $calcMode = trim((string)$value('calc_mode', 'fixed'));
+        $amount = abs((float)$value('amount', 0));
+        $amountMin = abs((float)$value('amount_min', 0));
+        $amountMax = abs((float)$value('amount_max', 0));
+        $poolPct = abs((float)$value('pool_pct', 0));
+        $isEnabled = (int)$value('is_enabled', 1) === 1 ? 1 : 0;
         if ($ruleName === '') return resultArray(['error' => '项目名称必填']);
         if (!in_array($direction, ['reward', 'penalty'], true)) return resultArray(['error' => '类型只允许奖励或处罚']);
         if (!in_array($calcMode, ['fixed', 'range', 'pool'], true)) return resultArray(['error' => '计算方式只允许 fixed/range/pool']);
         if ($calcMode === 'fixed' && $amount <= 0) return resultArray(['error' => '固定金额必须大于0']);
-        if ($calcMode === 'range' && (float)($param['amount_max'] ?? 0) <= 0) return resultArray(['error' => '区间最大金额必须大于0']);
+        if ($calcMode === 'range' && $amountMax <= 0) return resultArray(['error' => '区间最大金额必须大于0']);
+        if ($calcMode === 'range' && $amountMin > $amountMax) return resultArray(['error' => '区间最小金额不能大于最大金额']);
+        if ($calcMode === 'pool' && ($poolPct <= 0 || $poolPct > 100)) return resultArray(['error' => '奖金池比例必须大于0且不超过100']);
         $now = time();
         $data = [
             'rule_name' => $ruleName,
             'direction' => $direction,
             'amount' => $amount,
             'calc_mode' => $calcMode,
-            'amount_min' => abs((float)($param['amount_min'] ?? 0)),
-            'amount_max' => abs((float)($param['amount_max'] ?? 0)),
-            'pool_pct' => abs((float)($param['pool_pct'] ?? 0)),
-            'category' => trim((string)($param['category'] ?? '')),
-            'description' => trim((string)($param['description'] ?? '')),
-            'is_enabled' => (int)($param['is_enabled'] ?? 1),
-            'sort_order' => (int)($param['sort_order'] ?? 0),
+            'amount_min' => $amountMin,
+            'amount_max' => $amountMax,
+            'pool_pct' => $poolPct,
+            'category' => trim((string)$value('category', '')),
+            'description' => trim((string)$value('description', '')),
+            'is_enabled' => $isEnabled,
+            'sort_order' => (int)$value('sort_order', 0),
             'update_user_id' => (int)$userInfo['id'],
             'update_time' => $now,
         ];
         // 编辑时 rule_code 不可修改
-        $id = (int)($param['manual_rule_id'] ?? 0);
         if ($id === 0 && !empty($param['rule_code'])) {
             $data['rule_code'] = trim((string)$param['rule_code']);
         }
