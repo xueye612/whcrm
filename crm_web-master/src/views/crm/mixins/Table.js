@@ -297,6 +297,7 @@ export default {
             const moneyFields = []
             for (let index = 0; index < res.data.length; index++) {
               const element = res.data[index]
+              const formType = element.formType || element.form_type
               var width = 0
               if (!element.width) {
                 if (element.name && element.name.length <= 6) {
@@ -309,7 +310,7 @@ export default {
               }
 
               // 金额字段 需要格式化
-              if (element.formType === 'floatnumber') {
+              if (formType === 'floatnumber') {
                 moneyFields.push(element.fieldName || '')
               }
 
@@ -318,7 +319,7 @@ export default {
                 label: element.name,
                 width: width,
                 sortId: element.id,
-                form_type: element.form_type
+                form_type: formType
               })
             }
 
@@ -345,7 +346,7 @@ export default {
         return ['否', '是'][cellValue] || '--'
       }
       if (field) {
-        return getFormFieldShowName(field.formType, row[column.property], '--', field)
+        return getFormFieldShowName(field.form_type || field.formType, row[column.property], '--', field)
       }
       return row[column.property] === '' || row[column.property] === null ? '--' : row[column.property]
     },

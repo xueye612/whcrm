@@ -5,7 +5,7 @@
       :crm-type="crmType"
       :create-fun="createClick"
       title="客户管理"
-      placeholder="请输入客户名称/手机/电话"
+      placeholder="请输入客户名称/手机/电话/合作阶段"
       main-title="新建客户"
       @on-handle="listHeadHandle"
       @on-search="crmSearch"
@@ -114,6 +114,20 @@
                 v-if="row.is_lock == 1"
                 class="wk wk-circle-password customer-lock"/>
             </template>
+            <template v-else-if="item.prop == 'name' || item.prop == 'customer_name'">
+              <div class="customer-name-cell">
+                <span class="customer-name-cell__text">
+                  {{ fieldFormatter(row, column, row[column.property], item) }}
+                </span>
+                <el-tag
+                  v-if="isCooperationCustomer(row)"
+                  :type="cooperationStageTagType(row)"
+                  class="customer-name-cell__stage"
+                  size="mini">
+                  {{ cooperationStage(row) }}
+                </el-tag>
+              </div>
+            </template>
             <wk-field-view
               v-else
               :props="item"
@@ -203,6 +217,10 @@ import { mapGetters } from 'vuex'
 import CRMAllDetail from '@/views/crm/components/CRMAllDetail'
 import BusinessCheck from './components/BusinessCheck' // 相关商机
 import TableMixin from '../mixins/Table'
+import {
+  getCooperationStageTagType,
+  isCooperationEnterprise
+} from './cooperation'
 
 export default {
   /** 客户管理 的 客户列表 */
@@ -267,6 +285,18 @@ export default {
     this.$refs.elMenu.activeIndex = this.crmType
   },
   methods: {
+    isCooperationCustomer(row) {
+      return isCooperationEnterprise(row.cooperation_type)
+    },
+
+    cooperationStage(row) {
+      return row.cooperation_stage || '初筛'
+    },
+
+    cooperationStageTagType(row) {
+      return getCooperationStageTagType(this.cooperationStage(row))
+    },
+
     /**
      * 左侧菜单选择
      */
@@ -346,4 +376,23 @@ export default {
 
 <style lang="scss" scoped>
 @import '../styles/table.scss';
+
+.customer-name-cell {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.customer-name-cell__text {
+  overflow: hidden;
+  min-width: 0;
+  text-overflow: ellipsis;
+}
+
+.customer-name-cell__stage {
+  flex: none;
+  margin-left: 8px;
+  border-radius: 10px;
+}
 </style>

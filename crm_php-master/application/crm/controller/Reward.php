@@ -86,9 +86,65 @@ class Reward extends ApiCommon
         $now = time();
         $occurredTime = !empty($param['occurred_date']) ? strtotime((string)$param['occurred_date']) : $now;
 
+        // 原始数据批次仍在线下底稿审核，不搬入CRM；同一人员同月只保留达到的最高档。
+        $batchRuleCodes = ['raw_data_batch_basic' => 100.00, 'raw_data_batch_premium' => 200.00];
+        $isDataBatch = isset($batchRuleCodes[(string)($rule['rule_code'] ?? '')]);
+        $batchSourceRef = '';
+        if ($isDataBatch) {
+            $evidenceNote = trim((string)($param['evidence_note'] ?? ''));
+            if ($evidenceNote === '') return resultArray(['error' => '数据批次奖励必须填写去重、来源、业务匹配及后续核实依据']);
+            $month = date('Y-m', $occurredTime);
+            $batchSourceRef = 'raw_batch:user:' . $userId . ':month:' . $month;
+            $existBatch = Db::name('reward_candidate')->where([
+                'source_type' => '高质量原始数据批次',
+                'source_ref' => $batchSourceRef,
+            ])->find();
+            if ($existBatch) {
+                if ((float)$existBatch['amount'] >= (float)$amount) {
+                    return resultArray(['error' => '该人员本月已存在同档或更高档数据批次奖励，不重复叠加']);
+                }
+                if (in_array((string)$existBatch['status'], [RewardService::ST_SETTLED, RewardService::ST_OFFSET], true)) {
+                    return resultArray(['error' => '该人员本月较低档奖励已结算，不能直接升级，请走冲销或补差审核']);
+                }
+                $upgrade = [
+                    'amount' => $amount,
+                    'reason' => trim((string)($param['reason'] ?? $rule['description'])),
+                    'evidence_note' => $evidenceNote,
+                    'status' => RewardService::ST_PENDING,
+                    'reviewer_user_id' => 0,
+                    'review_time' => 0,
+                    'review_note' => '',
+                    'update_user_id' => (int)$userInfo['id'],
+                    'update_time' => $now,
+                ];
+                if ($this->rewardCandidateHasColumn('manual_rule_id')) $upgrade['manual_rule_id'] = $manualRuleId;
+                if (!$this->rewardCandidateHasColumn('update_user_id')) unset($upgrade['update_user_id']);
+                Db::name('reward_candidate')->where('cand_id', (int)$existBatch['cand_id'])->update($upgrade);
+                Db::name('reward_candidate_audit')->insert([
+                    'cand_id' => (int)$existBatch['cand_id'],
+                    'operation_type' => 'batch_tier_upgrade',
+                    'old_data_json' => json_encode($existBatch, JSON_UNESCAPED_UNICODE),
+                    'new_data_json' => json_encode($upgrade, JSON_UNESCAPED_UNICODE),
+                    'change_reason' => '同一人员同月数据批次奖励按最高档升级',
+                    'operator_user_id' => (int)$userInfo['id'],
+                    'operator_name' => $userInfo['realname'] ?? '',
+                    'operation_time' => $now,
+                    'request_ip' => Request::instance()->ip(),
+                    'create_time' => $now,
+                ]);
+                return resultArray(['data' => [
+                    'cand_id' => (int)$existBatch['cand_id'],
+                    'amount' => $amount,
+                    'direction' => $direction,
+                    'status' => RewardService::ST_PENDING,
+                    'upgraded' => true,
+                ]]);
+            }
+        }
+
         $insertData = [
-            'source_type' => 'manual:' . $rule['rule_name'],
-            'source_ref' => 'manual_rule:' . $manualRuleId . ':' . $userId . ':' . $occurredTime,
+            'source_type' => $isDataBatch ? '高质量原始数据批次' : ('manual:' . $rule['rule_name']),
+            'source_ref' => $isDataBatch ? $batchSourceRef : ('manual_rule:' . $manualRuleId . ':' . $userId . ':' . $occurredTime),
             'user_id' => $userId,
             'amount' => $amount,
             'reason' => trim((string)($param['reason'] ?? $rule['description'])),

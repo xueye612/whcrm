@@ -70,7 +70,9 @@ export default {
   },
 
   mounted() {
-    this.$refs.crmDetailMain.style.background = 'white'
+    if (this.$refs.crmDetailMain) {
+      this.$refs.crmDetailMain.style.background = 'white'
+    }
     this.debouncedGetTabsNum = debounce(300, this.getTabsNum)
   },
 

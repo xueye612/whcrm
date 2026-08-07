@@ -113,6 +113,9 @@ class PerformanceService
         'responsibility' => '责任认定',
         'implementation' => '自有产品实施',
         'outsource'       => '外包项目',
+        'cooperation_customer_verify' => '合作企业线索核实',
+        'cooperation_customer_contact' => '合作企业有效联系',
+        'cooperation_customer_formal_exchange' => '合作企业正式交流',
     ];
 
     private static $tiers = [self::TIER_GOOD, self::TIER_BASIC, self::TIER_IMPROVE];
@@ -337,6 +340,9 @@ class PerformanceService
             'project_contribution'    => '项目贡献',
             'manual'                  => '人工补录',
             'responsibility_case'     => '责任认定',
+            'cooperation_customer_verify' => '合作企业线索核实',
+            'cooperation_customer_contact' => '合作企业有效联系',
+            'cooperation_customer_formal_exchange' => '合作企业正式交流',
         ];
     }
 
@@ -413,6 +419,23 @@ class PerformanceService
         }
         if ($sourceType === 'manual') {
             return ['source_name' => '人工补录', 'source_module' => '人工补录', 'source_ref' => '', 'work_id' => 0, 'source_route' => '', 'source_anchor' => ''];
+        }
+        if (in_array($sourceType, [
+            'cooperation_customer_verify',
+            'cooperation_customer_contact',
+            'cooperation_customer_formal_exchange',
+        ], true)) {
+            if (preg_match('/customer:(\d+)/', $sourceId, $m)) {
+                $name = (string)Db::name('crm_customer')->where('customer_id', (int)$m[1])->value('name');
+                return [
+                    'source_name' => $name ?: ('客户#' . $m[1] . '（已不存在）'),
+                    'source_module' => '客户',
+                    'source_ref' => 'customer_id=' . $m[1],
+                    'work_id' => 0,
+                    'source_route' => '',
+                    'source_anchor' => '',
+                ];
+            }
         }
         if ($sourceType === 'project_milestone') {
             // sourceId: milestone:{id}

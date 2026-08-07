@@ -1230,12 +1230,40 @@ class Performance extends ApiCommon
         // 提交人回避仅在被考核人=提交人时生效（即自评场景）；管理员为他人补录后可审核
         // 不再阻止提交人为他人补录后审核
         $newStatus = $decision === 'approve' ? PerformanceService::FACT_APPROVED : PerformanceService::FACT_REJECTED;
-        Db::name('performance_fact')->where(['fact_id' => $factId])->update([
-            'status' => $newStatus, 'reviewer_user_id' => (int)$userInfo['id'],
-            'review_time' => time(), 'review_note' => trim((string)($param['review_note'] ?? '')),
-            'update_time' => time(),
-        ]);
-        return resultArray(['data' => ['fact_id' => $factId, 'status' => $newStatus]]);
+        Db::startTrans();
+        try {
+            Db::name('performance_fact')->where(['fact_id' => $factId])->update([
+                'status' => $newStatus, 'reviewer_user_id' => (int)$userInfo['id'],
+                'review_time' => time(), 'review_note' => trim((string)($param['review_note'] ?? '')),
+                'update_time' => time(),
+            ]);
+            RecordActionLog((int)$userInfo['id'], 'performance_fact', 'review', (string)$fact['title'], '', '', '绩效事实审核状态由' . (string)$fact['status'] . '变更为' . $newStatus);
+            $cooperationSources = [
+                \app\crm\logic\CooperationCustomerService::SOURCE_TYPE,
+                \app\crm\logic\CooperationCustomerService::CONTACT_SOURCE_TYPE,
+                \app\crm\logic\CooperationCustomerService::FORMAL_EXCHANGE_SOURCE_TYPE,
+            ];
+            if (in_array((string)$fact['source_type'], $cooperationSources, true)
+                && preg_match('/customer:(\d+)/', (string)$fact['source_id'], $matches)) {
+                $nodeNames = [
+                    \app\crm\logic\CooperationCustomerService::SOURCE_TYPE => '基础核实',
+                    \app\crm\logic\CooperationCustomerService::CONTACT_SOURCE_TYPE => '有效联系',
+                    \app\crm\logic\CooperationCustomerService::FORMAL_EXCHANGE_SOURCE_TYPE => '正式交流',
+                ];
+                $nodeName = $nodeNames[(string)$fact['source_type']];
+                updateActionLog((int)$userInfo['id'], 'crm_customer', (int)$matches[1], '', '', '合作企业' . $nodeName . '绩效事实审核状态变更为：' . $newStatus);
+            }
+            $reward = ['action' => 'not_applicable', 'cand_id' => 0];
+            if ($newStatus === PerformanceService::FACT_APPROVED) {
+                $reward = (new \app\crm\logic\CooperationCustomerService())
+                    ->syncApprovedCooperationReward($fact, (int)$userInfo['id']);
+            }
+            Db::commit();
+            return resultArray(['data' => ['fact_id' => $factId, 'status' => $newStatus, 'reward' => $reward]]);
+        } catch (\Exception $e) {
+            Db::rollback();
+            return resultArray(['error' => $e->getMessage()]);
+        }
     }
 
     /**

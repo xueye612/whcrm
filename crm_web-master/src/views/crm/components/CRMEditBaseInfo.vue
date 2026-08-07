@@ -10,8 +10,24 @@
       v-for="(mainItem, mainIndex) in list"
       :key="mainIndex"
       :title="mainItem.name"
+      :m-color="mainItem.name === '合作信息' ? '#5B6BFF' : '#2362FB'"
+      :class="{'is-cooperation-section': mainItem.name === '合作信息'}"
       class="b-cells"
       content-height="auto">
+      <div
+        v-if="mainItem.name === '合作信息'"
+        class="cooperation-overview">
+        <div class="cooperation-overview__icon"><i class="el-icon-connection" /></div>
+        <div class="cooperation-overview__content">
+          <div class="cooperation-overview__title">{{ cooperationOverviewTitle }}</div>
+          <div class="cooperation-overview__desc">{{ cooperationOverviewDescription }}</div>
+        </div>
+        <el-tag
+          v-if="isCooperationCustomer && cooperationStage"
+          :type="cooperationStageTagType"
+          size="mini"
+          class="cooperation-overview__stage">{{ cooperationStage }}</el-tag>
+      </div>
       <el-form
         :model="editForm"
         :rules="currentEditRules"
@@ -176,18 +192,6 @@
               wrap="wrap">
               <div
                 :span="0.5"
-                class="b-cell"
-                @click="checkMapView(item)">
-                <flexbox
-                  class="b-cell-b">
-                  <div class="b-cell-name">定位</div>
-                  <div
-                    class="b-cell-value"
-                    style="color: #3E84E9;cursor: pointer;">{{ item.value.location }}</div>
-                </flexbox>
-              </div>
-              <div
-                :span="0.5"
                 class="b-cell">
                 <flexbox
                   class="b-cell-b">
@@ -234,13 +238,6 @@
       </el-form>
     </sections>
     <slot />
-    <map-view
-      v-if="showMapView"
-      :title="mapViewInfo.title"
-      :lat="mapViewInfo.lat"
-      :lng="mapViewInfo.lng"
-      @hidden="showMapView=false" />
-
     <c-r-m-full-screen-detail
       :visible.sync="showFullDetail"
       :id="fullDetailId"
@@ -265,7 +262,6 @@ import WkFieldView from '@/components/NewCom/WkForm/WkFieldView'
 import WkField from '@/components/NewCom/WkForm/WkField'
 import crmTypeModel from '@/views/crm/model/crmTypeModel'
 import Sections from '../components/Sections'
-import MapView from '@/components/MapView' // 地图详情
 import FileListView from '@/components/FileListView'
 import CheckStatusMixin from '@/mixins/CheckStatusMixin'
 import { separator } from '@/filters/vueNumeralFilter/filters'
@@ -278,13 +274,19 @@ import { getWkDateTime } from '@/utils'
 
 import { getFormFieldShowName } from '@/components/NewCom/WkForm/utils'
 import CustomFieldsMixin from '@/mixins/CustomFields'
+import {
+  COOPERATION_FIELDS,
+  getCooperationStageTagType,
+  isCooperationEnterprise,
+  shouldPrioritizeCooperation,
+  shouldShowCooperationField
+} from '@/views/crm/customer/cooperation'
 
 export default {
   // 客户管理 的 基本信息
   name: 'CRMEditBaseInfo',
   components: {
     Sections,
-    MapView,
     FileListView,
     XhUserCell,
     XhStructureCell,
@@ -335,10 +337,6 @@ export default {
     return {
       loading: false,
       list: [],
-      // 控制展示地图详情
-      showMapView: false,
-      // 地图详情信息
-      mapViewInfo: {},
       showFullDetail: false,
       fullDetailId: '',
       fullDetailType: '',
@@ -350,6 +348,8 @@ export default {
       currentEditRules: {}, // 当前编辑字段规则
       editOptions: {},
       editFieldData: [],
+      cooperationType: '',
+      cooperationStage: '',
       invoiceTypeOptions: [{
         name: '增值税专用发票',
         value: 1
@@ -370,7 +370,20 @@ export default {
   },
   inject: ['rootTabs'],
   computed: {
-    ...mapGetters(['crm'])
+    ...mapGetters(['crm']),
+    isCooperationCustomer() {
+      return isCooperationEnterprise(this.cooperationType)
+    },
+    cooperationStageTagType() {
+      return getCooperationStageTagType(this.cooperationStage)
+    },
+    cooperationOverviewTitle() {
+      return this.isCooperationCustomer ? '企业合作跟进' : '医院客户'
+    },
+    cooperationOverviewDescription() {
+      if (!this.isCooperationCustomer) return '沿用现有客户、商机和合同流程，无需填写合作阶段。'
+      return '合作阶段独立于成交状态，核实信息作为绩效审核依据留存。'
+    }
   },
   watch: {
     id(val) {
@@ -442,6 +455,7 @@ export default {
             // 编辑用信息
             const editFieldData = []
             const editRules = {}
+            this.allForm = {}
 
             res.data.forEach(item => {
               if (item.form_type === 'floatnumber') {
@@ -497,30 +511,34 @@ export default {
             this.editFieldData = editFieldData
             this.editRules = editRules
 
-            if (this.otherList) {
-              this.list = [
-                {
-                  name: '基本信息',
-                  list: baseList
-                },
-                ...this.otherList,
-                {
-                  name: '系统信息',
-                  list: systemList
-                }
-              ]
+            const normalBaseList = baseList.filter(item => !COOPERATION_FIELDS.includes(item.field))
+            const cooperationList = baseList.filter(item => COOPERATION_FIELDS.includes(item.field))
+            const cooperationForm = COOPERATION_FIELDS.reduce((result, field) => {
+              result[field] = this.allForm[field]
+              return result
+            }, {})
+            const visibleCooperationList = cooperationList.filter(item => {
+              return shouldShowCooperationField(item.field, cooperationForm)
+            })
+            this.cooperationType = cooperationForm.cooperation_type || ''
+            this.cooperationStage = cooperationForm.cooperation_stage || ''
+
+            const baseSection = { name: '基本信息', list: normalBaseList }
+            const cooperationSection = { name: '合作信息', list: visibleCooperationList }
+            this.list = []
+            if (visibleCooperationList.length > 0) {
+              if (shouldPrioritizeCooperation(this.cooperationStage)) {
+                this.list.push(cooperationSection, baseSection)
+              } else {
+                this.list.push(baseSection, cooperationSection)
+              }
             } else {
-              this.list = [
-                {
-                  name: '基本信息',
-                  list: baseList
-                },
-                {
-                  name: '系统信息',
-                  list: systemList
-                }
-              ]
+              this.list.push(baseSection)
             }
+            if (this.otherList) {
+              this.list.push(...this.otherList)
+            }
+            this.list.push({ name: '系统信息', list: systemList })
 
             this.editCancel()
             this.loading = false
@@ -561,20 +579,6 @@ export default {
         this.currentEditRules = currentEditRules
       }
     },
-    /**
-     * 查看地图详情
-     */
-    checkMapView(item) {
-      if (item.value && item.value !== '') {
-        this.mapViewInfo = {
-          title: item.value.location,
-          lat: item.value.lat,
-          lng: item.value.lng
-        }
-        this.showMapView = true
-      }
-    },
-
     getArrayKey(type) {
       if (type === 'structure') {
         return 'name'
@@ -712,6 +716,9 @@ export default {
      */
     getEditAuth(item) {
       if (this.isSeas) {
+        return false
+      }
+      if (this.crmType === 'customer' && COOPERATION_FIELDS.includes(item.field || item.fieldName)) {
         return false
       }
       if (this.crmType == 'business' && ['business_type', 'business_status'].includes(item.form_type)) {
@@ -879,6 +886,65 @@ export default {
 
 .b-cells + .b-cells {
   margin-top: 25px;
+}
+
+.is-cooperation-section {
+  padding: 12px 10px 8px;
+  border: 1px solid #e6e9ff;
+  border-radius: 8px;
+  background: linear-gradient(180deg, #fafaff 0%, #fff 120px);
+  box-shadow: 0 4px 14px rgba(76, 91, 210, 0.05);
+
+  ::v-deep .section-header {
+    padding: 5px 8px;
+  }
+}
+
+.cooperation-overview {
+  display: flex;
+  align-items: center;
+  margin: 8px 10px 2px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  background-color: #f2f4ff;
+
+  &__icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    margin-right: 11px;
+    border-radius: 8px;
+    color: #5b6bff;
+    font-size: 16px;
+    background-color: #e3e7ff;
+    flex-shrink: 0;
+  }
+
+  &__content {
+    min-width: 0;
+    flex: 1;
+  }
+
+  &__title {
+    color: #30364d;
+    font-size: 13px;
+    font-weight: 600;
+    line-height: 20px;
+  }
+
+  &__desc {
+    color: #7a8199;
+    font-size: 12px;
+    line-height: 18px;
+  }
+
+  &__stage {
+    margin-left: 15px;
+    border-radius: 10px;
+    flex-shrink: 0;
+  }
 }
 
 .b-cell {

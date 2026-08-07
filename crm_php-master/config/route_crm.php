@@ -23,6 +23,8 @@ return [
     'crm/customer/save' => ['crm/customer/save', ['method' => 'POST']],
     // 【客户】编辑
     'crm/customer/update' => ['crm/customer/update', ['method' => 'POST']],
+    // 【客户】快捷调整合作阶段
+    'crm/customer/cooperationStage' => ['crm/customer/cooperationStage', ['method' => 'POST']],
     // 【客户】详情
     'crm/customer/read' => ['crm/customer/read', ['method' => 'POST']],
     // 【客户】转移

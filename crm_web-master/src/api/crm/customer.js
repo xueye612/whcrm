@@ -196,6 +196,18 @@ export function crmCustomerReadAPI(data) {
   })
 }
 
+/** 客户详情页快捷调整合作阶段 */
+export function crmCustomerCooperationStageAPI(data) {
+  return request({
+    url: 'crm/customer/cooperationStage',
+    method: 'post',
+    data,
+    headers: {
+      'Content-Type': 'application/json;charset=UTF-8'
+    }
+  })
+}
+
 // 操作
 /**
  * 客户锁定，解锁

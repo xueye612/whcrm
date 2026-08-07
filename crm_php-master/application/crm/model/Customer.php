@@ -96,9 +96,11 @@ class Customer extends Common
 		$searchMap = [];
 		if ($search || $search == '0') {
 			$searchMap = function($query) use ($search){
-			        $query->where('customer.name',array('like','%'.$search.'%'))
-			        	->whereOr('customer.mobile',array('like','%'.$search.'%'))
-			        	->whereOr('customer.telephone',array('like','%'.$search.'%'));
+				$query->where('customer.name',array('like','%'.$search.'%'))
+					->whereOr('customer.mobile',array('like','%'.$search.'%'))
+					->whereOr('customer.telephone',array('like','%'.$search.'%'))
+					->whereOr('customer.cooperation_type',array('like','%'.$search.'%'))
+					->whereOr('customer.cooperation_stage',array('like','%'.$search.'%'));
 			};
 		}
 
@@ -217,6 +219,12 @@ class Customer extends Common
         }
 
 		$indexField = $fieldModel->getIndexField('crm_customer', $user_id, 1) ? : array('name'); // 列表展示字段
+		// 阶段标识依附客户名称展示，即使用户隐藏了对应列也必须随列表返回。
+		foreach (['cooperation_type', 'cooperation_stage'] as $cooperationField) {
+			if (!in_array($cooperationField, $indexField)) {
+				$indexField[] = $cooperationField;
+			}
+		}
 		$userField = $fieldModel->getFieldByFormType('crm_customer', 'user'); // 人员类型
 		$structureField = $fieldModel->getFieldByFormType('crm_customer', 'structure'); // 部门类型
         # 处理人员和部门类型的排序报错问题(前端传来的是包含_name的别名字段)

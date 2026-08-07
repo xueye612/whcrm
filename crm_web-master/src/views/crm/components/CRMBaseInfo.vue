@@ -23,19 +23,6 @@
               wrap="wrap">
               <flexbox-item
                 :span="0.5"
-                class="b-cell"
-                @click.native="checkMapView(item)">
-                <flexbox
-                  class="b-cell-b"
-                  align="stretch">
-                  <div class="b-cell-name">定位</div>
-                  <div
-                    class="b-cell-value"
-                    style="color: #3E84E9;cursor: pointer;">{{ item.value.location }}</div>
-                </flexbox>
-              </flexbox-item>
-              <flexbox-item
-                :span="0.5"
                 class="b-cell">
                 <flexbox
                   class="b-cell-b"
@@ -110,13 +97,6 @@
       </sections>
       <slot />
     </div>
-    <map-view
-      v-if="showMapView"
-      :title="mapViewInfo.title"
-      :lat="mapViewInfo.lat"
-      :lng="mapViewInfo.lng"
-      @hidden="showMapView=false" />
-
     <c-r-m-full-screen-detail
       :visible.sync="showFullDetail"
       :id="fullDetailId"
@@ -128,7 +108,6 @@
 import crmTypeModel from '@/views/crm/model/crmTypeModel'
 import Sections from '../components/Sections'
 import { filedGetInformationAPI } from '@/api/crm/common'
-import MapView from '@/components/MapView' // 地图详情
 import FileListView from '@/components/FileListView'
 import CheckStatusMixin from '@/mixins/CheckStatusMixin'
 
@@ -141,7 +120,6 @@ export default {
   name: 'CRMBaseInfo',
   components: {
     Sections,
-    MapView,
     FileListView,
     CRMFullScreenDetail: () => import('@/components/CRMFullScreenDetail')
   },
@@ -184,10 +162,6 @@ export default {
     return {
       loading: false,
       list: [],
-      // 控制展示地图详情
-      showMapView: false,
-      // 地图详情信息
-      mapViewInfo: {},
       showFullDetail: false,
       fullDetailId: '',
       fullDetailType: ''
@@ -280,20 +254,6 @@ export default {
         .catch(() => {
           this.loading = false
         })
-    },
-
-    /**
-     * 查看地图详情
-     */
-    checkMapView(item) {
-      if (item.value && item.value !== '') {
-        this.mapViewInfo = {
-          title: item.value.location,
-          lat: item.value.lat,
-          lng: item.value.lng
-        }
-        this.showMapView = true
-      }
     },
 
     getArrayKey(type) {

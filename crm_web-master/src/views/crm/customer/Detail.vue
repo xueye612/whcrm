@@ -39,6 +39,30 @@
                 @click="toggleStar()" />
             </el-tooltip>
           </template>
+          <div
+            v-if="canAdjustCooperationStage"
+            class="cooperation-stage-bar">
+            <div class="cooperation-stage-bar__current">
+              <span class="cooperation-stage-bar__label">合作阶段</span>
+              <el-tag :type="cooperationStageTagType" size="small">{{ currentCooperationStage }}</el-tag>
+            </div>
+            <div class="cooperation-stage-bar__actions">
+              <el-button
+                v-if="nextCooperationStage"
+                size="small"
+                type="primary"
+                @click="openCooperationStageDialog(nextCooperationStage)">推进至{{ nextCooperationStage }}</el-button>
+              <el-dropdown trigger="click" @command="openCooperationStageDialog">
+                <el-button size="small">调整阶段<i class="el-icon-arrow-down el-icon--right" /></el-button>
+                <el-dropdown-menu slot="dropdown">
+                  <el-dropdown-item
+                    v-for="stage in adjustableCooperationStages"
+                    :key="stage"
+                    :command="stage">{{ stage }}</el-dropdown-item>
+                </el-dropdown-menu>
+              </el-dropdown>
+            </div>
+          </div>
         </c-r-m-detail-head>
         <flexbox
           class="d-container-bd"
@@ -54,6 +78,7 @@
               :name="item.name"
               lazy>
               <component
+                :key="item.name === 'Activity' ? activityRefreshKey : item.name"
                 :is="item.name"
                 :detail="detailData"
                 :type-list="logTyps"
@@ -100,11 +125,88 @@
       :crm-type="createCRMType"
       @save-success="editSaveSuccess"
       @close="isCreate=false" />
+    <el-dialog
+      :visible.sync="cooperationStageDialogVisible"
+      :close-on-click-modal="false"
+      append-to-body
+      width="560px"
+      custom-class="cooperation-stage-dialog"
+      title="调整合作阶段">
+      <el-form
+        ref="cooperationStageForm"
+        :model="cooperationStageForm"
+        :rules="cooperationStageRules"
+        label-position="top">
+        <el-form-item label="合作阶段" prop="cooperation_stage">
+          <el-select v-model="cooperationStageForm.cooperation_stage" style="width: 100%">
+            <el-option v-for="stage in cooperationStages" :key="stage" :label="stage" :value="stage" />
+          </el-select>
+        </el-form-item>
+        <template v-if="cooperationStageForm.cooperation_stage === verifiedStage">
+          <div class="cooperation-stage-dialog__hint">首次进入已核实且资料完整后，将自动生成一条待审核绩效事实。</div>
+          <div class="cooperation-stage-dialog__grid">
+            <el-form-item label="发现人" prop="discover_user_id">
+              <wk-user-select v-model="cooperationStageForm.discover_user_id" radio />
+            </el-form-item>
+            <el-form-item label="核实人" prop="verify_user_id">
+              <wk-user-select v-model="cooperationStageForm.verify_user_id" radio />
+            </el-form-item>
+            <el-form-item label="核实时间" prop="verify_time">
+              <el-date-picker
+                v-model="cooperationStageForm.verify_time"
+                type="datetime"
+                value-format="yyyy-MM-dd HH:mm:ss"
+                placeholder="请选择核实时间"
+                style="width: 100%" />
+            </el-form-item>
+            <el-form-item label="核实结果" prop="verify_result">
+              <el-select v-model="cooperationStageForm.verify_result" style="width: 100%">
+                <el-option v-for="result in verifyResults" :key="result" :label="result" :value="result" />
+              </el-select>
+            </el-form-item>
+          </div>
+          <el-form-item label="核实说明" prop="verify_note">
+            <el-input
+              v-model.trim="cooperationStageForm.verify_note"
+              :rows="4"
+              type="textarea"
+              maxlength="500"
+              show-word-limit
+              placeholder="请填写核实依据；无实质依据的记录不能进入绩效审核" />
+          </el-form-item>
+        </template>
+        <template v-else-if="[effectiveContactStage, negotiatingStage].includes(cooperationStageForm.cooperation_stage)">
+          <div class="cooperation-stage-dialog__hint">
+            <template v-if="cooperationStageForm.cooperation_stage === effectiveContactStage">
+              有效联系要求具体人员真实回复并有明确下一步；审核通过后生成200元业务获取奖金池阶段预发候选。
+            </template>
+            <template v-else>
+              洽谈中必须已完成正式产品介绍或合作交流会议；审核通过后生成500元业务获取奖金池阶段预发候选。
+            </template>
+          </div>
+          <el-form-item
+            :label="cooperationStageForm.cooperation_stage === effectiveContactStage ? '有效联系记录' : '正式交流记录'"
+            prop="stage_evidence_note">
+            <el-input
+              v-model.trim="cooperationStageForm.stage_evidence_note"
+              :rows="4"
+              :placeholder="cooperationStageForm.cooperation_stage === effectiveContactStage ? '请写明具体联系人、真实回复内容和明确下一步' : '请写明交流对象、产品介绍或会议内容、交流结论和下一步'"
+              type="textarea"
+              maxlength="500"
+              show-word-limit />
+          </el-form-item>
+        </template>
+      </el-form>
+      <span slot="footer">
+        <el-button @click="cooperationStageDialogVisible = false">取消</el-button>
+        <el-button :loading="cooperationStageSubmitting" type="primary" @click="submitCooperationStage">确认调整</el-button>
+      </span>
+    </el-dialog>
   </slide-view>
 </template>
 
 <script>
-import { crmCustomerReadAPI, crmCustomerPoolQueryAuthAPI } from '@/api/crm/customer'
+import { crmCustomerReadAPI, crmCustomerPoolQueryAuthAPI, crmCustomerCooperationStageAPI } from '@/api/crm/customer'
 
 import SlideView from '@/components/SlideView'
 import CRMDetailHead from '../components/CRMDetailHead'
@@ -124,7 +226,19 @@ import RelativeInvoice from '../components/RelativeInvoice' // 发票
 import RelativeFinance from '../components/RelativeFinance' // 收支
 
 import CRMAllCreate from '../components/CRMAllCreate' // 新建页面
+import WkUserSelect from '@/components/NewCom/WkUserSelect'
 import DetailMixin from '../mixins/Detail'
+import {
+  COOPERATION_MAIN_STAGES,
+  COOPERATION_STAGES,
+  EFFECTIVE_CONTACT_STAGE,
+  NEGOTIATING_STAGE,
+  VERIFIED_STAGE,
+  VERIFY_RESULTS,
+  getCooperationStageTagType,
+  isCooperationEnterprise,
+  shouldPrioritizeCooperation
+} from './cooperation'
 
 export default {
   // 客户管理 的 客户详情
@@ -146,6 +260,7 @@ export default {
     RelativeLedger,
     RelativeFinance,
     CRMAllCreate,
+    WkUserSelect,
     RelativeInvoice
   },
   mixins: [DetailMixin],
@@ -197,10 +312,65 @@ export default {
       firstContactsId: '',
 
       // 公海规则权限
-      poolAuth: {}
+      poolAuth: {},
+      activityRefreshKey: 0,
+      cooperationStageDialogVisible: false,
+      cooperationStageSubmitting: false,
+      cooperationStages: COOPERATION_STAGES,
+      verifiedStage: VERIFIED_STAGE,
+      effectiveContactStage: EFFECTIVE_CONTACT_STAGE,
+      negotiatingStage: NEGOTIATING_STAGE,
+      verifyResults: VERIFY_RESULTS,
+      cooperationStageForm: {
+        cooperation_stage: '',
+        discover_user_id: '',
+        verify_user_id: '',
+        verify_time: '',
+        verify_result: '',
+        verify_note: '',
+        stage_evidence_note: ''
+      },
+      cooperationStageRules: {
+        cooperation_stage: [{ required: true, message: '请选择合作阶段', trigger: 'change' }],
+        discover_user_id: [{ required: true, message: '请选择发现人', trigger: 'change' }],
+        verify_user_id: [{ required: true, message: '请选择核实人', trigger: 'change' }],
+        verify_time: [{ required: true, message: '请选择核实时间', trigger: 'change' }],
+        verify_result: [{ required: true, message: '请选择核实结果', trigger: 'change' }],
+        verify_note: [{ required: true, message: '请填写核实说明', trigger: 'blur' }],
+        stage_evidence_note: [
+          { required: true, message: '请填写本阶段的业务证据', trigger: 'blur' },
+          { min: 10, message: '业务证据至少填写10个字', trigger: 'blur' }
+        ]
+      }
     }
   },
   computed: {
+    currentCooperationStage() {
+      return (this.detailData && this.detailData.cooperation_stage) || '初筛'
+    },
+    cooperationStageTagType() {
+      return getCooperationStageTagType(this.currentCooperationStage)
+    },
+    nextCooperationStage() {
+      const index = COOPERATION_MAIN_STAGES.indexOf(this.currentCooperationStage)
+      return index >= 0 && index < COOPERATION_MAIN_STAGES.length - 1
+        ? COOPERATION_MAIN_STAGES[index + 1]
+        : ''
+    },
+    adjustableCooperationStages() {
+      const currentIndex = COOPERATION_MAIN_STAGES.indexOf(this.currentCooperationStage)
+      return COOPERATION_STAGES.filter(stage => {
+        if (stage === this.currentCooperationStage) return false
+        const targetIndex = COOPERATION_MAIN_STAGES.indexOf(stage)
+        return currentIndex < 0 || targetIndex < 0 || targetIndex <= currentIndex + 1
+      })
+    },
+    canAdjustCooperationStage() {
+      return !!(this.detailData &&
+        !this.isSeasDetail &&
+        isCooperationEnterprise(this.detailData.cooperation_type) &&
+        this.crm.customer && this.crm.customer.update)
+    },
     ledgerAuth() {
       const allAuth = this.$store.getters.allAuth || {}
       return (allAuth.ledger && allAuth.ledger.ledger) || {}
@@ -386,6 +556,59 @@ export default {
   watch: {},
   mounted() {},
   methods: {
+    cooperationUserId(value) {
+      const selected = Array.isArray(value) ? value[0] : value
+      if (selected && typeof selected === 'object') {
+        return Number(selected.id || selected.user_id || selected.userId) || ''
+      }
+      return Number(selected) || ''
+    },
+    formatCooperationDateTime(value) {
+      if (!value) return ''
+      if (typeof value === 'string' && value.includes('-')) return value
+      const numericValue = Number(value)
+      const date = new Date(numericValue * (numericValue < 100000000000 ? 1000 : 1))
+      if (Number.isNaN(date.getTime())) return ''
+      const pad = number => String(number).padStart(2, '0')
+      return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
+    },
+    openCooperationStageDialog(stage) {
+      const currentUserId = Number((this.$store.getters.userInfo || {}).id) || ''
+      this.cooperationStageForm = {
+        cooperation_stage: stage,
+        discover_user_id: this.cooperationUserId(this.detailData.discover_user_id) || currentUserId,
+        verify_user_id: this.cooperationUserId(this.detailData.verify_user_id) || currentUserId,
+        verify_time: this.formatCooperationDateTime(this.detailData.verify_time),
+        verify_result: this.detailData.verify_result || '',
+        verify_note: this.detailData.verify_note || '',
+        stage_evidence_note: ''
+      }
+      this.cooperationStageDialogVisible = true
+      this.$nextTick(() => {
+        if (this.$refs.cooperationStageForm) this.$refs.cooperationStageForm.clearValidate()
+      })
+    },
+    submitCooperationStage() {
+      this.$refs.cooperationStageForm.validate(valid => {
+        if (!valid) return
+        this.cooperationStageSubmitting = true
+        crmCustomerCooperationStageAPI({ id: this.id, ...this.cooperationStageForm })
+          .then(() => {
+            this.cooperationStageDialogVisible = false
+            this.$message.success('合作阶段已更新，活动记录已生成')
+            this.activityRefreshKey++
+            this.editSaveSuccess()
+          })
+          .catch(error => {
+            if (error && error.message === '接口不存在') {
+              this.$message.error('合作阶段接口未加载，请刷新页面后重试')
+            }
+          })
+          .finally(() => {
+            this.cooperationStageSubmitting = false
+          })
+      })
+    },
     /**
      * 详情
      */
@@ -416,9 +639,7 @@ export default {
             this.poolAuth = res.data || {}
           })
 
-          this.headDetails[0].value = this.detailData.level
-
-          const dealItem = this.headDetails[1]
+          const dealItem = { title: '成交状态', value: '' }
           if (this.detailData.deal_status === null || this.detailData.deal_status === '' || this.detailData.deal_status === undefined) {
             dealItem.showIcon = false
             dealItem.value = ''
@@ -443,8 +664,38 @@ export default {
             }
           }
 
-          this.headDetails[2].value = this.isSeasDetail ? this.detailDatabefore_owner_user_name : this.detailData.owner_user_id_info.realname || ''
-          this.headDetails[3].value = this.detailData.create_time
+          const ownerInfo = this.detailData.owner_user_id_info || {}
+          const basicHeadDetails = [
+            { title: '客户级别', value: this.detailData.level || '' },
+            dealItem
+          ]
+          const cooperationHeadDetails = []
+          if (isCooperationEnterprise(this.detailData.cooperation_type)) {
+            cooperationHeadDetails.push(
+              {
+                title: '客户类型',
+                value: this.detailData.cooperation_type,
+                showIcon: true,
+                icon: 'el-icon-office-building',
+                style: { color: '#5b6bff', marginRight: '5px' }
+              },
+              {
+                title: '合作阶段',
+                value: this.detailData.cooperation_stage || '',
+                showIcon: !!this.detailData.cooperation_stage,
+                icon: 'el-icon-connection',
+                style: { color: '#20b559', marginRight: '5px' }
+              }
+            )
+          }
+          const headDetails = shouldPrioritizeCooperation(this.detailData.cooperation_stage)
+            ? cooperationHeadDetails.concat(basicHeadDetails)
+            : basicHeadDetails.concat(cooperationHeadDetails)
+          headDetails.push(
+            { title: '负责人', value: this.isSeasDetail ? (this.detailData.before_owner_user_name || '') : (ownerInfo.realname || '') },
+            { title: '更新时间', value: this.detailData.create_time }
+          )
+          this.headDetails = headDetails
         })
         .catch(() => {
           this.loading = false
@@ -510,5 +761,62 @@ export default {
   padding: 2px;
   transform: scale(0.6);
 }
+
+.cooperation-stage-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 46px;
+  margin: 0 24px 12px;
+  padding: 0 14px;
+  border: 1px solid #e6eaff;
+  border-radius: 6px;
+  background: #f7f8ff;
+
+  &__current,
+  &__actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    white-space: nowrap;
+  }
+
+  &__label {
+    color: #6b778c;
+    font-size: 13px;
+  }
+}
 @import '../styles/crmdetail.scss';
+</style>
+
+<style lang="scss">
+.cooperation-stage-dialog {
+  .el-dialog__body {
+    padding: 18px 24px 6px;
+  }
+
+  .el-form-item {
+    margin-bottom: 17px;
+  }
+
+  .el-form-item__label {
+    padding-bottom: 6px;
+    line-height: 20px;
+  }
+
+  &__hint {
+    margin: 0 0 14px;
+    padding: 10px 12px;
+    border-radius: 5px;
+    color: #536174;
+    background: #f4f6ff;
+    font-size: 13px;
+  }
+
+  &__grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0 16px;
+  }
+}
 </style>

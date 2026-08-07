@@ -9,6 +9,7 @@ namespace app\crm\controller;
 
 use app\admin\controller\ApiCommon;
 use app\crm\logic\CustomerLogic;
+use app\crm\logic\CooperationCustomerService;
 use app\crm\traits\SearchConditionTrait;
 use app\crm\traits\StarTrait;
 use phpDocumentor\Reflection\Types\False_;
@@ -31,7 +32,7 @@ class Customer extends ApiCommon
     {
         $action = [
             'permission' => ['exceldownload', 'setfollow', 'delete'],
-            'allow' => ['read', 'system', 'count', 'poolauthority', 'level']
+            'allow' => ['read', 'system', 'count', 'poolauthority', 'level', 'cooperationstage']
         ];
         Hook::listen('check_auth', $action);
         $request = Request::instance();
@@ -87,6 +88,7 @@ class Customer extends ApiCommon
         $param['user_id'] = $userInfo['id'];
         $param['create_user_id'] = $userInfo['id'];
         $param['owner_user_id'] = $userInfo['id'];
+        $param = $this->normalizeCooperationUserFields($param);
 
         unset($param['signing_method'], $param['dealer_customer_id'], $param['customer_type']);
 
@@ -94,6 +96,11 @@ class Customer extends ApiCommon
         try {
             $res = $customerModel->createData($param);
             if (!$res) throw new \Exception($customerModel->getError());
+
+            $cooperationService = new CooperationCustomerService();
+            $cooperationService->syncFirstVerified($res['customer_id'], $userInfo['id']);
+            $cooperationService->syncFirstEffectiveContact($res['customer_id'], $userInfo['id']);
+            $cooperationService->syncFirstFormalExchange($res['customer_id'], $userInfo['id']);
 
             Db::commit();
             return resultArray(['data' => $res]);
@@ -151,13 +158,41 @@ class Customer extends ApiCommon
             return resultArray(['error' => $customerModel->getError()]);
         }
 
-        unset($param['signing_method'], $param['dealer_customer_id'], $param['customer_type']);
+        $stageEvidenceNote = trim((string)($param['stage_evidence_note'] ?? ''));
+        unset($param['signing_method'], $param['dealer_customer_id'], $param['customer_type'], $param['stage_evidence_note']);
         $param['user_id'] = $userInfo['id'];
+        $param = $this->normalizeCooperationUserFields($param);
+        $oldStageBeforeUpdate = isset($data['cooperation_stage']) ? $data['cooperation_stage'] : '';
+        $newStageBeforeUpdate = array_key_exists('cooperation_stage', $param) ? $param['cooperation_stage'] : $oldStageBeforeUpdate;
+        $transitionError = CooperationCustomerService::validateTransition($oldStageBeforeUpdate, $newStageBeforeUpdate);
+        if ($transitionError !== '') return resultArray(['error' => $transitionError]);
         Db::startTrans();
         try {
             if (!$customerModel->updateDataById($param, $param['id'])) {
                 throw new \Exception($customerModel->getError());
             }
+
+            $cooperationService = new CooperationCustomerService();
+            $oldStage = isset($data['cooperation_stage']) ? $data['cooperation_stage'] : '';
+            $newStage = array_key_exists('cooperation_stage', $param) ? $param['cooperation_stage'] : $oldStage;
+            if ((string)$oldStage !== (string)$newStage && $stageEvidenceNote !== '') {
+                if ((string)$newStage === CooperationCustomerService::STAGE_EFFECTIVE_CONTACT) {
+                    CooperationCustomerService::recordMilestoneEvidenceActivity($param['id'], 'effective_contact', $stageEvidenceNote, $userInfo['id']);
+                } elseif ((string)$newStage === CooperationCustomerService::STAGE_NEGOTIATING) {
+                    CooperationCustomerService::recordMilestoneEvidenceActivity($param['id'], 'formal_exchange', $stageEvidenceNote, $userInfo['id']);
+                }
+            }
+            if ((string)$oldStage !== (string)$newStage
+                && !CooperationCustomerService::recordStageActivity($param['id'], $oldStage, $newStage, $userInfo['id'])) {
+                throw new \RuntimeException('合作阶段活动记录生成失败');
+            }
+            $cooperationService->syncFirstVerified(
+                $param['id'],
+                $userInfo['id'],
+                $oldStage
+            );
+            $cooperationService->syncFirstEffectiveContact($param['id'], $userInfo['id'], $oldStage);
+            $cooperationService->syncFirstFormalExchange($param['id'], $userInfo['id'], $oldStage);
 
             Db::commit();
             return resultArray(['data' => '编辑成功']);
@@ -165,6 +200,114 @@ class Customer extends ApiCommon
             Db::rollback();
             return resultArray(['error' => $e->getMessage()]);
         }
+    }
+
+    /**
+     * 详情页快捷调整合作阶段。
+     * 仅更新合作跟进字段，复用客户更新权限、活动记录和首次核实绩效逻辑。
+     */
+    public function cooperationStage()
+    {
+        $param = $this->normalizeCooperationUserFields($this->param);
+        $userInfo = $this->userInfo;
+        $customerId = isset($param['id']) ? (int)$param['id'] : 0;
+        $newStage = trim((string)($param['cooperation_stage'] ?? ''));
+        $customerModel = model('Customer');
+
+        if ($customerId <= 0 || $newStage === '') {
+            return resultArray(['error' => '客户和合作阶段不能为空']);
+        }
+        if (!checkPerByAction('crm', 'customer', 'update') || !$customerModel->checkData($customerId, 1)) {
+            return resultArray(['error' => '无权修改该客户']);
+        }
+
+        Db::startTrans();
+        try {
+            $customer = Db::name('crm_customer')->where('customer_id', $customerId)->lock(true)->find();
+            if (!$customer) throw new \RuntimeException('客户不存在');
+            if (!CooperationCustomerService::isCooperationCustomer($customer)) {
+                throw new \RuntimeException('仅合作企业支持调整合作阶段');
+            }
+
+            $oldStage = trim((string)($customer['cooperation_stage'] ?? ''));
+            if ($oldStage === $newStage) {
+                Db::commit();
+                return resultArray(['data' => ['cooperation_stage' => $newStage, 'changed' => false]]);
+            }
+            $transitionError = CooperationCustomerService::validateTransition($oldStage, $newStage);
+            if ($transitionError !== '') throw new \RuntimeException($transitionError);
+
+            $update = ['cooperation_stage' => $newStage, 'update_time' => time()];
+            foreach (['discover_user_id', 'verify_user_id', 'verify_result', 'verify_note'] as $field) {
+                if (array_key_exists($field, $param)) $update[$field] = $param[$field];
+            }
+            if (array_key_exists('verify_time', $param)) {
+                $verifyTime = $param['verify_time'];
+                if ($verifyTime !== '' && !is_numeric($verifyTime)) $verifyTime = strtotime($verifyTime);
+                $update['verify_time'] = $verifyTime ? (int)$verifyTime : null;
+            }
+
+            $candidate = array_merge($customer, $update);
+            $validateError = CooperationCustomerService::validate($candidate);
+            if ($validateError !== '') throw new \RuntimeException($validateError);
+
+            $stageEvidenceNote = trim((string)($param['stage_evidence_note'] ?? ''));
+            if ($stageEvidenceNote !== '') {
+                if ($newStage === CooperationCustomerService::STAGE_EFFECTIVE_CONTACT) {
+                    CooperationCustomerService::recordMilestoneEvidenceActivity($customerId, 'effective_contact', $stageEvidenceNote, $userInfo['id']);
+                } elseif ($newStage === CooperationCustomerService::STAGE_NEGOTIATING) {
+                    CooperationCustomerService::recordMilestoneEvidenceActivity($customerId, 'formal_exchange', $stageEvidenceNote, $userInfo['id']);
+                }
+            }
+
+            $updated = Db::name('crm_customer')->where('customer_id', $customerId)->update($update);
+            if (!$updated) throw new \RuntimeException('合作阶段更新失败，请重试');
+            if (!CooperationCustomerService::recordStageActivity($customerId, $oldStage, $newStage, $userInfo['id'])) {
+                throw new \RuntimeException('合作阶段活动记录生成失败');
+            }
+
+            updateActionLog($userInfo['id'], 'crm_customer', $customerId,
+                ['cooperation_stage' => $oldStage], ['cooperation_stage' => $newStage]);
+            RecordActionLog($userInfo['id'], 'crm_customer', 'update', $customer['name'],
+                ['cooperation_stage' => $oldStage], ['cooperation_stage' => $newStage],
+                '合作阶段由「' . $oldStage . '」变更为「' . $newStage . '」');
+
+            $cooperationService = new CooperationCustomerService();
+            $performance = [
+                'verified' => $cooperationService->syncFirstVerified($customerId, $userInfo['id'], $oldStage),
+                'effective_contact' => $cooperationService->syncFirstEffectiveContact($customerId, $userInfo['id'], $oldStage),
+                'formal_exchange' => $cooperationService->syncFirstFormalExchange($customerId, $userInfo['id'], $oldStage),
+            ];
+            Db::commit();
+            return resultArray(['data' => [
+                'cooperation_stage' => $newStage,
+                'changed' => true,
+                'performance' => $performance,
+            ]]);
+        } catch (\Exception $e) {
+            Db::rollback();
+            return resultArray(['error' => $e->getMessage()]);
+        }
+    }
+
+    /** 兼容单选员工字段提交为ID、数组或用户对象，避免已选择仍被判空。 */
+    private function normalizeCooperationUserFields(array $param)
+    {
+        foreach (['discover_user_id', 'verify_user_id'] as $field) {
+            if (!array_key_exists($field, $param)) continue;
+            $value = $param[$field];
+            if (is_array($value)) {
+                if (isset($value['id'])) {
+                    $value = $value['id'];
+                } elseif (isset($value['user_id'])) {
+                    $value = $value['user_id'];
+                } elseif (isset($value[0])) {
+                    $value = is_array($value[0]) ? ($value[0]['id'] ?? $value[0]['user_id'] ?? '') : $value[0];
+                }
+            }
+            $param[$field] = (int)$value > 0 ? (int)$value : '';
+        }
+        return $param;
     }
 
     /**
