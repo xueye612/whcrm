@@ -31,53 +31,62 @@
       </el-tooltip>
     </div>
     <div class="list-right">
-      <div
-        v-if="data.lableList && data.lableList.length > 0"
-        class="tag-box">
+      <div class="meta-slot due-slot">
         <span
-          v-for="(item, index) in showLabels"
-          :key="index"
-          :style="{'background': item.color}"
-          class="k-name">{{ item.name }}</span>
+          v-if="data.stop_time||data.stopTime"
+          :class="[ 'due-time', { 'is-past': data.is_end == 1 } ]">
+          <i class="el-icon-time" />截止 {{ data.stop_time||data.stopTime }}
+        </span>
+        <span v-else class="empty-meta">—</span>
+      </div>
+
+      <div class="meta-slot tag-slot">
+        <div
+          v-if="data.lableList && data.lableList.length > 0"
+          class="tag-box">
+          <span
+            v-for="(item, index) in showLabels"
+            :key="index"
+            :style="{'background': item.color}"
+            class="k-name">{{ item.name }}</span>
+          <el-tooltip
+            v-if="hideShowLabels.length"
+            placement="top"
+            effect="light"
+            popper-class="tooltip-change-border">
+            <div
+              slot="content"
+              class="tooltip-content">
+              <div
+                v-for="(item, index) in hideShowLabels"
+                :key="index"
+                class="item-label"
+                style="display: inline-block; margin-right: 10px;">
+                <span
+                  :style="{'background': item.color || '#ccc'}"
+                  class="k-name"
+                  style="border-radius: 3px; color: #FFF; padding: 3px 10px;">{{ item.name }}</span>
+              </div>
+            </div>
+            <el-button class="more-btn" icon="el-icon-more"/>
+          </el-tooltip>
+        </div>
+        <span v-else class="empty-meta">—</span>
+      </div>
+
+      <div class="meta-slot wrk-slot">
         <el-tooltip
-          v-if="hideShowLabels.length"
+          v-if="hasWrk"
           placement="top"
           effect="light"
           popper-class="tooltip-change-border">
-          <div
-            slot="content"
-            class="tooltip-content">
-            <div
-              v-for="(item, index) in hideShowLabels"
-              :key="index"
-              class="item-label"
-              style="display: inline-block; margin-right: 10px;">
-              <span
-                :style="{'background': item.color || '#ccc'}"
-                class="k-name"
-                style="border-radius: 3px; color: #FFF; padding: 3px 10px;">{{ item.name }}</span>
-            </div>
-          </div>
-          <el-button class="more-btn" icon="el-icon-more"/>
+          <div slot="content">{{ wrkTooltip(data) }}</div>
+          <span class="task-wr-compact">{{ wrkValues.join(' · ') }}</span>
         </el-tooltip>
+        <span v-else class="test-task-mark">不适用</span>
       </div>
 
-      <span
-        v-if="data.stop_time||data.stopTime"
-        :class="[ 'due-time', { 'is-past': data.is_end == 1 } ]">
-        截止时间{{ data.stop_time||data.stopTime }}
-      </span>
-
-      <el-tooltip
-        v-if="(data.initW || data.init_w) || (data.initR || data.init_r) || (data.initK || data.init_k)"
-        placement="top"
-        effect="light"
-        popper-class="tooltip-change-border">
-        <div slot="content">{{ wrkTooltip(data) }}</div>
-        <span class="task-wr-compact">{{ [data.initW || data.init_w, data.initR || data.init_r, data.initK || data.init_k].filter(Boolean).join(' · ') }}</span>
-      </el-tooltip>
-
-      <div class="img-group">
+      <div class="meta-slot img-group stats-slot">
         <div
           v-if="data.relationCount"
           class="img-box">
@@ -104,16 +113,25 @@
         </div>
       </div>
 
-      <xr-avatar
-        v-if="data.main_user && data.main_user.id"
-        :name="data.main_user.realname"
-        :id="data.main_user.id"
-        :size="24"
-        :src="data.main_user.img"
-        :disabled="false"
-        trigger="hover"
-        class="user-img"
-        @click.stop="" />
+      <div class="meta-slot owner-slot">
+        <xr-avatar
+          v-if="data.main_user && data.main_user.id"
+          :name="data.main_user.realname"
+          :id="data.main_user.id"
+          :size="28"
+          :src="data.main_user.img"
+          :disabled="false"
+          trigger="hover"
+          class="user-img"
+          @click.stop="" />
+        <span v-else class="empty-meta">—</span>
+      </div>
+      <div class="meta-slot action-slot">
+        <el-button
+          class="detail-button"
+          type="text"
+          @click.stop="rowFun(data)">详情</el-button>
+      </div>
     </div>
   </div>
 </template>
@@ -144,17 +162,29 @@ export default {
     },
 
     showLabels() {
-      if (this.data.lableList.length > 3) {
-        return this.data.lableList.slice(0, 3)
+      if (this.data.lableList.length > 1) {
+        return this.data.lableList.slice(0, 1)
       }
       return this.data.lableList
     },
 
     hideShowLabels() {
-      if (this.data.lableList.length > 3) {
-        return this.data.lableList.slice(3)
+      if (this.data.lableList.length > 1) {
+        return this.data.lableList.slice(1)
       }
       return []
+    },
+
+    wrkValues() {
+      return [
+        this.data.finalW || this.data.final_w || this.data.initW || this.data.init_w || 'W-',
+        this.data.finalR || this.data.final_r || this.data.initR || this.data.init_r || 'R-',
+        this.data.finalK || this.data.final_k || this.data.initK || this.data.init_k || 'K-'
+      ]
+    },
+
+    hasWrk() {
+      return !this.data.is_test_task
     }
   },
   watch: {},
@@ -162,9 +192,10 @@ export default {
   methods: {
     wrkTooltip(data) {
       var parts = []
-      var w = data.initW || data.init_w
-      var r = data.initR || data.init_r
-      var k = data.initK || data.init_k
+      var w = data.finalW || data.final_w || data.initW || data.init_w
+      var r = data.finalR || data.final_r || data.initR || data.init_r
+      var k = data.finalK || data.final_k || data.initK || data.init_k
+      if (!w && !r && !k) return 'W/R/K 尚未评估'
       if (w) parts.push(w + '：工作量')
       if (r) parts.push(r + '：风险')
       if (k) parts.push(k + '：专业确认')
@@ -242,9 +273,10 @@ export default {
   line-height: 20px;
   padding: 0 8px;
   border-radius: 3px;
-  background: #ecf5ff;
-  color: #409eff;
-  margin-left: 8px;
+  border: 1px solid #d9e5ff;
+  background: #f4f7ff;
+  color: #356ae6;
+  margin: 0;
   font-size: 12px;
   font-weight: 600;
   white-space: nowrap;
@@ -267,12 +299,17 @@ export default {
 }
 
 .list {
-  padding: 0 10px;
+  padding: 0 14px;
   cursor: pointer;
   position: relative;
-  height: 40px;
-  line-height: 40px;
+  min-height: 46px;
+  line-height: 46px;
   display: flex;
+  margin-top: 6px;
+  border: 1px solid #edf0f5;
+  border-radius: 6px;
+  box-sizing: border-box;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
   .header {
     margin-bottom: 15px;
     img {
@@ -336,6 +373,7 @@ export default {
   }
   .list-left {
     flex: 1;
+    min-width: 0;
     overflow: hidden;
     white-space: nowrap;
     text-overflow: ellipsis;
@@ -350,14 +388,18 @@ export default {
     }
   }
   .list-right {
+    display: grid;
+    grid-template-columns: 138px 72px 100px 52px 48px 58px;
     flex-shrink: 0;
+    align-items: center;
     .user-img {
-      vertical-align: text-top;
-      margin-left: 12px;
+      margin: 0 auto;
     }
     .tag-box {
-      display: inline-block;
-      margin-right: 20px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 0;
       .item-label {
         display: inline-block;
       }
@@ -368,7 +410,10 @@ export default {
         padding: 0 10px;
         border-radius: 3px;
         color: #fff;
-        margin-right: 6px;
+        max-width: 60px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
         font-size: 12px;
       }
     }
@@ -381,23 +426,32 @@ export default {
 }
 
 .list:hover {
-  background: #fafafa;
+  background: #fbfcff;
+  border-color: #cbd8ff;
+  box-shadow: 0 4px 12px rgba(38, 99, 235, 0.08);
+  transform: translateY(-1px);
+}
+
+.meta-slot {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  line-height: normal;
+}
+
+.empty-meta {
+  color: #c5cad3;
+  font-size: 12px;
+}
+
+.test-task-mark {
+  color: #909399;
+  font-size: 12px;
 }
 
 .list:before {
-  content: ' ';
-  position: absolute;
-  top: 0;
-  right: 0;
-  height: 1px;
-  border-top: 1px solid $xr-border-line-color;
-  color: $xr-border-line-color;
-  -webkit-transform-origin: 0 0;
-  transform-origin: 0 0;
-  -webkit-transform: scaleY(0.5);
-  transform: scaleY(0.5);
-  left: 0;
-  z-index: 2;
+  display: none;
 }
 .list:first-child:before {
   display: none;
@@ -410,12 +464,31 @@ export default {
   padding: 2px 8px;
   border-radius: $xr-border-radius-base;
   background-color: #F1F1F1;
-  margin-right: 10px;
+  max-width: 140px;
+  overflow: hidden;
+  line-height: 22px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+
+  i {
+    margin-right: 4px;
+  }
 }
 
 .due-time.is-past {
   color: #F95A5A;
   background-color: #FFF2F2;
+}
+
+.detail-button {
+  margin-left: 0;
+  padding: 0;
+  white-space: nowrap;
+  flex-shrink: 0;
+
+  i {
+    margin-left: 3px;
+  }
 }
 
 .tooltip-content {

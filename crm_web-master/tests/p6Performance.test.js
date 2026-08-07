@@ -76,6 +76,12 @@ check(factPanelVue.indexOf("dimension_stats") !== -1 || factPanelVue.indexOf("di
 check(factPanelVue.indexOf("openDetail") !== -1, '事实中心应有查看详情入口')
 check(factPanelVue.indexOf("performanceFactDetailAPI") !== -1, '事实中心应调用 factDetail 接口')
 check(factPanelVue.indexOf("performanceFactListAPI") !== -1, '事实中心应使用 performanceFactListAPI（不再使用 extensions 重复定义）')
+check(perfVue.indexOf("admin/base/loginInfo") === -1, '绩效页面不得依赖不存在的 loginInfo 接口')
+check(perfVue.indexOf('current_user_id') !== -1, '绩效页面应使用字典接口返回的当前账号ID')
+check(perfVue.indexOf('字典或权限加载失败不能阻断绩效列表') !== -1, '字典加载失败时仍应继续加载绩效列表')
+check(factPanelVue.indexOf('viewerUserId') !== -1, '事实中心应接收父页面确认的当前账号ID')
+check(factPanelVue.indexOf('effectiveViewerUserId') !== -1, '事实中心应可靠判断本人数据')
+check(factPanelVue.indexOf('loadError') !== -1, '事实中心加载失败时应展示明确错误状态')
 
 // 9. SQL 迁移：create_method 列
 const sqlMigration = fs.readFileSync(path.resolve(__dirname, '../../deployment/sql/20260730_perf_create_method_forward.sql'), 'utf8')

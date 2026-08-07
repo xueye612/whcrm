@@ -4,6 +4,7 @@ export function rewardCandidateSaveAPI(data) { return request({ url: 'crm/reward
 export function rewardCandidateListAPI(data) { return request({ url: 'crm/reward/candidateList', method: 'post', data }) }
 export function rewardCandidateReadAPI(data) { return request({ url: 'crm/reward/candidateRead', method: 'post', data }) }
 export function rewardCandidateUpdateAPI(data) { return request({ url: 'crm/reward/candidateUpdate', method: 'post', data }) }
+export function rewardCandidateDeleteAPI(data) { return request({ url: 'crm/reward/candidateDelete', method: 'post', data }) }
 export function rewardCandidateAuditListAPI(data) { return request({ url: 'crm/reward/candidateAuditList', method: 'post', data }) }
 export function rewardRuleListAPI(data) { return request({ url: 'crm/reward/ruleList', method: 'post', data }) }
 export function rewardRuleSaveAPI(data) { return request({ url: 'crm/reward/ruleSave', method: 'post', data }) }

@@ -268,6 +268,7 @@ check(strpos($businessCtrlSrc, 'getDefaultTypeId') !== false, 'Business 控制�
 // === 29) 新增：奖惩管理员编辑与审计 ===
 check(strpos($rewardCtrlSrc, 'function candidateRead') !== false, 'Reward 有 candidateRead 方法');
 check(strpos($rewardCtrlSrc, 'function candidateUpdate') !== false, 'Reward 有 candidateUpdate 方法');
+check(strpos($rewardCtrlSrc, 'function candidateDelete') !== false, 'Reward 有 candidateDelete 方法');
 check(strpos($rewardCtrlSrc, 'function candidateAuditList') !== false, 'Reward 有 candidateAuditList 方法');
 check(strpos($rewardCtrlSrc, 'function ruleList') !== false, 'Reward 有 ruleList 方法');
 check(strpos($rewardCtrlSrc, 'function ruleSave') !== false, 'Reward 有 ruleSave 方法');
@@ -278,6 +279,18 @@ check(strpos($rewardCtrlSrc, 'lock(true)') !== false, 'candidateUpdate 锁定候
 check(strpos($rewardCtrlSrc, '幂等键重复') !== false, 'candidateUpdate 幂等键冲突检查');
 check(strpos($rewardCtrlSrc, '已进入结算批次') !== false, 'candidateUpdate 禁止编辑已进入批次的记录');
 check(strpos($rewardCtrlSrc, 'edit_and_reset') !== false, 'candidateUpdate 已通过编辑后重置');
+check(strpos($rewardCtrlSrc, '必须填写删除原因') !== false, 'candidateDelete 必须填写删除原因');
+check(strpos($rewardCtrlSrc, "'crm', 'reward', 'candidatedelete'") !== false, 'candidateDelete 使用独立角色权限');
+check(strpos($rewardCtrlSrc, "'operation_type' => 'delete'") !== false, 'candidateDelete 删除前写完整审计');
+check(strpos($rewardCtrlSrc, '已结算批次中的记录不能直接删除') !== false, 'candidateDelete 禁止删除已结算批次记录');
+check(strpos($rewardCtrlSrc, '15628812133') !== false, '奖惩全量可见仅放行指定管理员账号');
+check(strpos($rewardCtrlSrc, "whereOr('r.create_user_id'") !== false && strpos($rewardCtrlSrc, "whereOr('r.reviewer_user_id'") !== false, '普通账号候选列表仅本人相关范围');
+check(strpos($rewardCtrlSrc, 'relatedCandidateSummary') !== false, '普通账号奖惩汇总按本人相关范围');
+check(strpos($rewardCtrlSrc, "(string)\$batch['status'] === '已结算'") !== false, '已结算批次仍禁止删除');
+check(strpos($rewardCtrlSrc, "update(['total_amount' => round(\$remainingAmount, 2)])") !== false, '删除待结算批次候选后重算批次金额');
+check(strpos($routeCrmSrc, 'crm/reward/candidateDelete') !== false, '路由注册 candidateDelete');
+check(file_exists($migrationDir . '20260807_reward_candidate_delete_permission_forward.sql'), '新增删除候选权限迁移');
+check(file_exists($migrationDir . '20260807_reward_candidate_delete_permission_verify.sql'), '新增删除候选权限验证脚本');
 
 // === 30) 新增：TaskWorkflowPanel 首次加载修复 ===
 $wpSrc = file_get_contents($root . '/../crm_web-master/src/views/taskExamine/task/components/TaskWorkflowPanel.vue');

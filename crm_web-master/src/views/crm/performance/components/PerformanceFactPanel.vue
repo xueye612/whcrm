@@ -14,6 +14,7 @@
     <el-alert v-if="aggResult" :title="aggResult.summary" :closable="true" :type="aggResult.type" show-icon style="margin-bottom:10px" @close="aggResult = null">
       <div class="pfp-agg-detail">{{ aggResult.detail }}</div>
     </el-alert>
+    <el-alert v-if="loadError" :title="loadError" :closable="false" type="error" show-icon style="margin-bottom:10px" />
 
     <!-- 维度统计概览 -->
     <div class="pfp-stats">
@@ -165,6 +166,7 @@ export default {
   props: {
     userId: [Number, String],
     period: { type: String, default: '' },
+    viewerUserId: { type: [Number, String], default: 0 },
     allowReview: { type: Boolean, default: false }
   },
   data() {
@@ -177,7 +179,8 @@ export default {
       filterDimension: '',
       dimensionStats: {},
       dimensionLabels: DIM_LABEL,
-      currentUserId: 0,
+      runtimeCurrentUserId: 0,
+      loadError: '',
       showAdd: false,
       detailVisible: false,
       detailLoading: false,
@@ -196,14 +199,18 @@ export default {
       return this.period || (new Date().getFullYear()) + 'Q' + Math.ceil((new Date().getMonth() + 1) / 3)
     },
     isSelf() {
-      return Number(this.userId) === Number(this.currentUserId)
+      return Number(this.userId) > 0 && Number(this.userId) === Number(this.effectiveViewerUserId)
+    },
+    effectiveViewerUserId() {
+      return Number(this.viewerUserId) || Number(this.runtimeCurrentUserId) || 0
     },
     canAddFact() {
       return this.isSelf || this.allowReview
     }
   },
   watch: {
-    userId: { handler() { this.fetch() }, immediate: true }
+    userId: { handler() { this.fetch() }, immediate: true },
+    period() { this.fetch() }
   },
   async created() {
     try {
@@ -216,11 +223,13 @@ export default {
       // 获取当前用户
       const store = this.$store || (this.$root && this.$root.$store)
       if (store && store.state && store.state.user && store.state.user.userInfo) {
-        this.currentUserId = Number(store.state.user.userInfo.id) || 0
+        this.runtimeCurrentUserId = Number(store.state.user.userInfo.id || store.state.user.userInfo.user_id) || 0
       }
     } catch (e) { /* 忽略 */ }
     try {
-      await performanceDictionaryAPI({})
+      const r = await performanceDictionaryAPI({})
+      const data = (r && r.data) || r || {}
+      if (Number(data.current_user_id) > 0) this.runtimeCurrentUserId = Number(data.current_user_id)
     } catch (e) { /* 忽略 */ }
   },
   methods: {
@@ -238,6 +247,7 @@ export default {
     async fetch() {
       if (!this.userId) return
       this.loading = true
+      this.loadError = ''
       try {
         const params = { user_id: Number(this.userId), period: this.currentPeriod }
         if (this.filterDimension) params.dimension = this.filterDimension
@@ -247,6 +257,8 @@ export default {
         this.dimensionStats = data.dimension_stats || {}
       } catch (e) {
         this.facts = []
+        this.dimensionStats = {}
+        this.loadError = (e && e.error) || '绩效事实加载失败，请刷新后重试'
       } finally {
         this.loading = false
       }
@@ -329,7 +341,7 @@ export default {
 </script>
 
 <style scoped>
-.perf-fact-panel { padding: 4px 0; }
+.perf-fact-panel { min-width: 0; padding: 4px 0; }
 
 /* 操作栏 */
 .pfp-toolbar {
@@ -360,7 +372,7 @@ export default {
 .pfp-stat-pending { font-size: 11px; color: #e6a23c; margin-top: 2px; }
 
 /* 表格 */
-.perf-fact-panel >>> .el-table { border-radius: 6px; overflow: hidden; }
+.perf-fact-panel >>> .el-table { width: 100%; border-radius: 6px; overflow: hidden; }
 .perf-fact-panel >>> .el-table--small td { padding: 6px 0; }
 .pfp-title { font-size: 13px; color: #303133; line-height: 1.4; }
 .pfp-type-tag {

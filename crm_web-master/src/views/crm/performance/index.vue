@@ -218,8 +218,13 @@
     </el-dialog>
 
     <!-- 绩效事实中心弹窗 -->
-    <el-dialog :visible.sync="factsDialog" title="绩效事实中心" width="900px" append-to-body custom-class="pp-facts-dialog">
-      <performance-fact-panel v-if="factsUserId" :user-id="factsUserId" :period="factsPeriod" :allow-review="canReviewFact(factsUserId)" />
+    <el-dialog :visible.sync="factsDialog" title="绩效事实中心" width="94%" top="5vh" append-to-body custom-class="pp-facts-dialog">
+      <performance-fact-panel
+        v-if="factsUserId"
+        :user-id="factsUserId"
+        :period="factsPeriod"
+        :viewer-user-id="currentUserId"
+        :allow-review="canReviewFact(factsUserId)" />
     </el-dialog>
   </div>
 </template>
@@ -307,15 +312,25 @@ export default {
     }
   },
   async created() {
+    this.resolveCurrentUser()
     try {
-      const userRes = await request({ url: 'admin/base/loginInfo', method: 'post' })
-      this.currentUserId = (userRes.data && userRes.data.userInfo && userRes.data.userInfo.id) || 0
-    } catch (e) { /* 忽略 */ }
-    await this.fetchDict()
+      await this.fetchDict()
+    } catch (e) {
+      // 字典或权限加载失败不能阻断绩效列表，列表接口仍按后端数据权限返回。
+    }
     await this.fetchPerms()
     await this.fetchList()
   },
   methods: {
+    resolveCurrentUser() {
+      var storeUser = (this.$store && this.$store.getters && this.$store.getters.userInfo) ||
+        (this.$store && this.$store.state && this.$store.state.user && this.$store.state.user.userInfo) || {}
+      var cachedUser = {}
+      try {
+        cachedUser = JSON.parse(localStorage.getItem('loginUserInfo') || '{}') || {}
+      } catch (e) { /* 忽略无效缓存 */ }
+      this.currentUserId = Number(storeUser.id || storeUser.user_id || cachedUser.id || cachedUser.user_id) || 0
+    },
     emptyScoreForm() {
       return { perf_id: 0, user_id: 0, user_name: '', user_post: '', user_structure: '', period: '', status: '', create_method_label: '', duty_score: 0, task_score: 0, quality_score: 0, collab_score: 0, adjust_reason: '', fact_counts: {}}
     },
@@ -350,6 +365,9 @@ export default {
     async fetchDict() {
       const r = await performanceDictionaryAPI({})
       const data = (r.data && r.data) || r || {}
+      if (Number(data.current_user_id) > 0) {
+        this.currentUserId = Number(data.current_user_id)
+      }
       this.dict = data.dictionary ? data.dictionary : data
       if (data.perms) {
         Object.keys(this.perms).forEach(k => {
@@ -693,7 +711,12 @@ export default {
 
 <style>
 .pp-detail-dialog .el-dialog__body { padding: 16px 20px; }
-.pp-facts-dialog .el-dialog__body { padding: 12px 16px; }
+.pp-facts-dialog { max-width: 1180px; }
+.pp-facts-dialog .el-dialog__body {
+  max-height: calc(90vh - 72px);
+  overflow: auto;
+  padding: 12px 16px 16px;
+}
 .pp-score-dialog .el-dialog__body { padding: 16px 20px; }
 @media (max-width: 768px) {
   .pp-detail-dialog, .pp-facts-dialog, .pp-score-dialog { width: 95% !important; margin: 0 auto !important; }

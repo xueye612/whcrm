@@ -138,7 +138,7 @@
             </div>
             <div class="rp-table-actions">
               <el-button size="small" icon="el-icon-refresh" @click="fetchList">刷新</el-button>
-              <el-button size="small" @click="batchCreate">生成结算批次</el-button>
+              <el-button v-if="isRewardAdmin" size="small" @click="batchCreate">生成结算批次</el-button>
             </div>
           </div>
           <el-table
@@ -211,6 +211,7 @@
                     <el-dropdown-item v-if="s.row.can_edit" command="edit">编辑</el-dropdown-item>
                     <el-dropdown-item command="audit">审计</el-dropdown-item>
                     <el-dropdown-item v-if="s.row.status==='已通过'" command="offset" divided>冲销</el-dropdown-item>
+                    <el-dropdown-item v-if="s.row.can_delete" command="delete" divided class="rp-delete-action">删除</el-dropdown-item>
                   </el-dropdown-menu>
                 </el-dropdown>
               </template>
@@ -474,11 +475,18 @@
           <!-- 第一段：选择奖惩项目 -->
           <div class="rp-dialog-section">
             <div class="rp-dialog-section-title"><span class="rp-dialog-step">1</span>选择奖惩项目</div>
+            <el-form-item label="奖励/处罚" required>
+              <el-radio-group v-model="candidateDirection" size="small" @change="onCandidateDirectionChange">
+                <el-radio-button label="reward">添加奖励</el-radio-button>
+                <el-radio-button label="penalty">添加处罚</el-radio-button>
+              </el-radio-group>
+            </el-form-item>
             <el-form-item label="奖惩项目" required>
               <el-select v-model="form.manual_rule_id" placeholder="选择奖惩项目" filterable style="width:100%" @change="onRuleSelect">
-                <el-option v-for="r in enabledManualRules" :key="r.manual_rule_id" :label="ruleOptionLabel(r)" :value="r.manual_rule_id" />
+                <el-option v-for="r in candidateManualRules" :key="r.manual_rule_id" :label="ruleOptionLabel(r)" :value="r.manual_rule_id" />
               </el-select>
             </el-form-item>
+            <div v-if="!candidateManualRules.length" class="rp-empty-inline">当前没有启用的{{ candidateDirection === 'penalty' ? '处罚' : '奖励' }}项目，请先到“奖惩项目”中启用。</div>
             <div v-if="selectedRule" class="rp-rule-preview">
               <div class="rp-rule-preview-top">
                 <el-tag :type="selectedRule.direction === 'penalty' ? 'danger' : 'success'" size="small" effect="plain">{{ selectedRule.direction === 'penalty' ? '处罚' : '奖励' }}</el-tag>
@@ -811,7 +819,7 @@
 <script>
 import {
   rewardDictionaryAPI, rewardCandidateSaveAPI, rewardCandidateListAPI,
-  rewardCandidateReadAPI, rewardCandidateUpdateAPI, rewardCandidateAuditListAPI,
+  rewardCandidateReadAPI, rewardCandidateUpdateAPI, rewardCandidateDeleteAPI, rewardCandidateAuditListAPI,
   rewardReviewAPI, rewardBatchCreateAPI, rewardOffsetAPI, rewardConfigSaveAPI,
   rewardManualRuleListAPI, rewardManualRuleSaveAPI,
   rewardRuleListAPI, rewardRuleSaveAPI, rewardRuleToggleAPI, rewardRuleDeleteAPI,
@@ -832,6 +840,7 @@ export default {
       loading: false,
       formSubmitting: false,
       dict: { statuses: [] },
+      isRewardAdmin: false,
       config: {},
       configKeys: ['dealer_first_payment_reward', 'outsource_business_pool_pct', 'outsource_revenue_cap'],
       configForm: {},
@@ -841,6 +850,7 @@ export default {
       filters: { user_id: '', dates: [], status: '', direction: '', keyword: '' },
       page: 1, limit: 50, total: 0,
       editMode: false,
+      candidateDirection: 'reward',
       form: this.defaultForm(),
       candidateDialog: false,
       detailVisible: false,
@@ -893,6 +903,10 @@ export default {
     },
     enabledManualRules() {
       return this.manualRules.filter(function(m) { return m.is_enabled })
+    },
+    candidateManualRules() {
+      const direction = this.candidateDirection
+      return this.enabledManualRules.filter(function(m) { return m.direction === direction })
     },
     filteredManualRules() {
       var kw = (this.ruleSearch || '').trim().toLowerCase()
@@ -1141,7 +1155,7 @@ export default {
       }[key] || ''
     },
     opLabel(t) {
-      var m = { manual_create: '新建', edit: '编辑', edit_and_reset: '编辑并重置审核', review_approve: '审核通过', review_reject: '审核驳回', stage_rollback_void: '阶段回退作废', stage_rollback_reversal: '阶段回退冲销', stage_reactivate: '重新激活' }
+      var m = { manual_create: '新建', edit: '编辑', edit_and_reset: '编辑并重置审核', delete: '删除', review_approve: '审核通过', review_reject: '审核驳回', stage_rollback_void: '阶段回退作废', stage_rollback_reversal: '阶段回退冲销', stage_reactivate: '重新激活' }
       return m[t] || t
     },
     statusTag(s) {
@@ -1176,6 +1190,7 @@ export default {
         const r = await rewardDictionaryAPI({})
         const d = r.data || r
         this.dict = d
+        this.isRewardAdmin = !!d.is_reward_admin
         this.config = d.config || {}
         this.configKeys.forEach(k => {
           if (this.config[k] && this.config[k] !== '待配置') this.configForm[k] = String(this.config[k])
@@ -1233,13 +1248,19 @@ export default {
       this.form.amount = 0
       this.form.base_amount = 0
     },
+    onCandidateDirectionChange() {
+      this.form.manual_rule_id = ''
+      this.form.amount = 0
+      this.form.base_amount = 0
+    },
     resetForm() { this.form = this.defaultForm(); this.editMode = false },
-    openCreate() { this.editMode = false; this.form = this.defaultForm(); this.searchUser(''); this.candidateDialog = true },
+    openCreate() { this.editMode = false; this.candidateDirection = 'reward'; this.form = this.defaultForm(); this.searchUser(''); this.candidateDialog = true },
     async openEdit(row) {
       this.editMode = true
       try {
         const r = await rewardCandidateReadAPI({ cand_id: row.cand_id })
         const d = r.data || {}
+        this.candidateDirection = Number(d.amount) < 0 ? 'penalty' : 'reward'
         this.form = {
           cand_id: d.cand_id, manual_rule_id: d.manual_rule_id || '',
           user_id: d.user_id, occurred_date: d.occurred_date || '',
@@ -1326,6 +1347,27 @@ export default {
       else if (cmd === 'edit') this.openEdit(row)
       else if (cmd === 'audit') this.openDetail(row)
       else if (cmd === 'offset') this.offset(row)
+      else if (cmd === 'delete') this.deleteCandidate(row)
+    },
+    async deleteCandidate(row) {
+      var reason = ''
+      try {
+        const result = await this.$prompt('删除后记录将从奖惩列表移除，删除操作和原始内容仍会保留在审计日志中。请填写删除原因：', '删除奖惩候选', {
+          confirmButtonText: '确认删除',
+          cancelButtonText: '取消',
+          inputType: 'textarea',
+          inputPlaceholder: '例如：重复生成、人员选择错误、测试数据',
+          inputValidator: value => (value && String(value).trim()) ? true : '必须填写删除原因',
+          type: 'warning'
+        })
+        reason = String(result.value || '').trim()
+      } catch (e) { return }
+      try {
+        await rewardCandidateDeleteAPI({ cand_id: row.cand_id, delete_reason: reason })
+        this.$message.success('奖惩候选已删除')
+        if (this.list.length === 1 && this.page > 1) this.page--
+        this.fetchList()
+      } catch (e) { /* 全局拦截器提示 */ }
     },
     async offset(row) {
       this.$prompt('冲销金额', '冲销').then(async({ value }) => {
@@ -1576,6 +1618,7 @@ export default {
 .rp-cell-date { font-size: 14px; color: #5c6066; font-variant-numeric: tabular-nums; }
 .rp-cell-reason { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; line-height: 1.5; font-size: 13px; color: #5c6066; }
 .rp-amount-reward { color: #67c23a; font-weight: 600; font-variant-numeric: tabular-nums; }
+.rp-delete-action { color: #f56c6c; }
 .rp-amount-penalty { color: #f56c6c; font-weight: 600; font-variant-numeric: tabular-nums; }
 .rp-more-btn { margin-left: 6px; }
 

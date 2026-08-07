@@ -287,6 +287,35 @@ class Task extends ApiCommon
                 $taskList[$key]['is_end'] = $is_end;
             }
         }
+
+        // “我的任务”列表与项目任务列表保持一致，批量补齐工作流 W/R/K。
+        // 这里按当前分页一次查询，避免逐条读取 task_workflow 造成 N+1。
+        $workflowMap = [];
+        $testTaskMap = [];
+        if (!empty($taskList)) {
+            $taskIds = array_map(function ($task) {
+                return (int)$task['task_id'];
+            }, $taskList);
+            $workflowRows = Db::name('task_workflow')
+                ->whereIn('task_id', $taskIds)
+                ->field('task_id,init_w,init_r,init_k,final_w,final_r,final_k,main_status,workflow_version')
+                ->select();
+            foreach ($workflowRows as $workflowRow) {
+                $workflowMap[(int)$workflowRow['task_id']] = $workflowRow;
+            }
+            $testTaskIds = Db::name('task_test_ext')->whereIn('task_id', $taskIds)->column('task_id');
+            foreach ($testTaskIds as $testTaskId) {
+                $testTaskMap[(int)$testTaskId] = true;
+            }
+        }
+        foreach ($taskList as $key => $task) {
+            $workflow = isset($workflowMap[(int)$task['task_id']]) ? $workflowMap[(int)$task['task_id']] : [];
+            foreach (['init_w', 'init_r', 'init_k', 'final_w', 'final_r', 'final_k', 'main_status'] as $field) {
+                $taskList[$key][$field] = isset($workflow[$field]) ? $workflow[$field] : '';
+            }
+            $taskList[$key]['workflow_version'] = isset($workflow['workflow_version']) ? (int)$workflow['workflow_version'] : 0;
+            $taskList[$key]['is_test_task'] = isset($testTaskMap[(int)$task['task_id']]);
+        }
         
         $data = [];
         $data['page']['list'] = $taskList ?: [];

@@ -15,6 +15,12 @@
       direction="column"
       align="stretch"
       class="main">
+      <div v-if="!loading && !taskData && loadError" class="detail-error">
+        <div class="detail-error__icon"><i class="el-icon-warning-outline" /></div>
+        <div class="detail-error__title">任务详情加载失败</div>
+        <div class="detail-error__desc">{{ loadError }}</div>
+        <el-button type="primary" size="small" @click="getDetail">重新加载</el-button>
+      </div>
       <div
         v-if="taskData"
         class="main__hd task-hd">
@@ -692,7 +698,8 @@ export default {
       activityList: [],
       fileList: [],
       // 评论列表
-      replyList: []
+      replyList: [],
+      loadError: ''
     }
   },
   computed: {
@@ -767,11 +774,14 @@ export default {
     }
   },
   watch: {
-    id: function(val) {
-      this.initInfo()
-      this.getDetail()
-      this.getCommentList()
-      this.getActivityList()
+    id: {
+      immediate: true,
+      handler(val) {
+        this.initInfo()
+        if (val !== '' && val !== null && val !== undefined) {
+          this.getDetail()
+        }
+      }
     },
 
     labelList(newValue, oldValue) {
@@ -797,15 +807,16 @@ export default {
      * 动画完成方法
      */
     viewAfterEnter() {
-      if (this.id) {
+      if (this.id && this.loading === null) {
         this.getDetail()
-        this.getCommentList()
-        this.getActivityList()
       }
     },
 
     initInfo() {
       this.taskData = null
+      this.loading = null
+      this.loadError = ''
+      this.canShowDetail = true
       this.subTaskComplete = 0
       this.addDescriptionShow = false
       this.priorityVisible = false
@@ -834,6 +845,8 @@ export default {
      */
     getDetail() {
       this.loading = true
+      this.loadError = ''
+      this.canShowDetail = true
       const request = this.isTrash ? detailsTrashTaskAPI : detailsTaskAPI
       request({ task_id: this.id })
         .then(res => {
@@ -881,13 +894,15 @@ export default {
           this.getCommentList(taskData.replyList)
           this.taskData = taskData
           this.loading = false
+          this.getActivityList()
         })
         .catch(error => {
           this.loading = false
-          if (error && error.msg == '没有权限') {
+          const message = error && (error.error || error.msg || error.message)
+          if (message && (message.indexOf('没有权限') !== -1 || message.indexOf('无权') !== -1)) {
             this.canShowDetail = false
           } else {
-            this.closeBtn()
+            this.loadError = message || '暂时无法取得任务信息，请稍后重试'
           }
         })
     },
@@ -1840,11 +1855,44 @@ export default {
   }
 }
 
+.detail-error {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 360px;
+  padding: 40px;
+  background: #fff;
+  color: #8a94a6;
+  text-align: center;
+
+  &__icon {
+    margin-bottom: 18px;
+    color: #f5a623;
+    font-size: 46px;
+  }
+
+  &__title {
+    margin-bottom: 8px;
+    color: #253858;
+    font-size: 18px;
+    font-weight: 600;
+  }
+
+  &__desc {
+    max-width: 420px;
+    margin-bottom: 20px;
+    line-height: 1.6;
+  }
+}
+
 //任务详情头
 .task-hd {
   background-color: white;
-  padding: 8px 25px 15px;
-  border-bottom: 1px solid $xr-border-line-color;
+  padding: 16px 28px 20px;
+  border-bottom: 1px solid #e7eaf0;
+  box-shadow: 0 3px 12px rgba(31, 45, 61, 0.05);
 
   &__top {
     font-size: 12px;
@@ -1863,7 +1911,7 @@ export default {
   }
 
   &__middle {
-    margin-top: 5px;
+    margin-top: 12px;
     .el-checkbox {
       margin-right: 8px;
       margin-top: 5px;
@@ -1871,7 +1919,9 @@ export default {
   }
 
   &__bottom {
-    margin-top: 20px;
+    margin-top: 24px;
+    padding: 16px 0 0;
+    border-top: 1px solid #f0f2f5;
     color: #666;
     .vux-flexbox-item {
       text-align: left;
@@ -2051,7 +2101,11 @@ export default {
 
 // 详情其他模块
 .section {
-  padding: 10px 0;
+  margin-bottom: 14px;
+  padding: 18px 20px;
+  background: #fff;
+  border: 1px solid #edf0f5;
+  border-radius: 8px;
 
   &__hd {
     span {
@@ -2068,7 +2122,7 @@ export default {
 
   &__bd {
     margin-top: 15px;
-    padding-left: 25px;
+    padding-left: 0;
   }
 }
 
@@ -2168,11 +2222,13 @@ export default {
 .d-view {
   position: fixed;
   background: white;
-  min-width: 926px;
-  width: 75%;
+  min-width: 980px;
+  width: 90%;
+  max-width: 1600px;
   top: 60px;
   bottom: 0px;
   right: 0px;
+  box-shadow: -10px 0 30px rgba(31, 45, 61, 0.16);
 }
 </style>
 

@@ -10,10 +10,13 @@ check(fs.existsSync(path.join(ROOT, 'src/api/crm/reward.js')), 'reward.js exists
 
 // === Reward API has manual rule endpoints ===
 const rewardApi = fs.readFileSync(path.join(ROOT, 'src/api/crm/reward.js'), 'utf8')
+const rewardRoutes = fs.readFileSync(path.resolve(__dirname, '../../crm_php-master/config/route_crm.php'), 'utf8')
 check(rewardApi.includes('ManualRuleListAPI'), 'reward API has manualRuleList')
 check(rewardApi.includes('ManualRuleSaveAPI'), 'reward API has manualRuleSave')
 check(rewardApi.includes('CandidateReadAPI'), 'reward API has candidateRead')
 check(rewardApi.includes('CandidateUpdateAPI'), 'reward API has candidateUpdate')
+check(rewardApi.includes('CandidateDeleteAPI'), 'reward API has candidateDelete')
+check(rewardRoutes.includes('crm/reward/candidateDelete'), 'reward candidateDelete route is registered')
 check(rewardApi.includes('CandidateAuditListAPI'), 'reward API has candidateAuditList')
 
 // === Reward page structure ===
@@ -27,6 +30,10 @@ check(rewardVue.includes('系统参数'), 'reward page has system config tab')
 // Simplified candidate form: only project+person+date+reason
 check(rewardVue.includes('manual_rule_id'), 'candidate form uses manual_rule_id')
 check(rewardVue.includes('候选人员'), 'candidate form has person select')
+check(rewardVue.includes('添加奖励'), 'candidate form has explicit reward entry')
+check(rewardVue.includes('添加处罚'), 'candidate form has explicit penalty entry')
+check(rewardVue.includes('candidateManualRules'), 'candidate form filters projects by reward or penalty direction')
+check(rewardVue.includes('onCandidateDirectionChange'), 'switching reward/penalty resets the selected project')
 check(rewardVue.includes('所属日期'), 'candidate form has date')
 check(rewardVue.includes('事由说明'), 'candidate form has reason')
 check(!rewardVue.includes('el-radio-group v-model="form.direction"'), 'candidate form does NOT have direction radio')
@@ -55,6 +62,9 @@ check(rewardVue.includes('opLabel'), 'reward page has operation type labels')
 
 // Edit uses can_edit from backend
 check(rewardVue.includes('can_edit'), 'reward page uses backend can_edit flag')
+check(rewardVue.includes('can_delete'), 'reward page uses backend can_delete flag')
+check(rewardVue.includes('deleteCandidate'), 'reward page has controlled candidate delete action')
+check(rewardVue.includes('必须填写删除原因'), 'candidate delete requires a reason')
 
 // Config save button
 check(rewardVue.includes('saveAllConfig'), 'reward page has save config button')
@@ -85,6 +95,21 @@ check(rewardVue.includes('ruleSubTab'), 'reward page has sub-tabs for manual/sta
 const rewardPhp = fs.readFileSync(path.resolve(__dirname, '../../crm_php-master/application/crm/controller/Reward.php'), 'utf8')
 check(rewardPhp.includes('function manualRuleList'), 'backend has manualRuleList')
 check(rewardPhp.includes('function manualRuleSave'), 'backend has manualRuleSave')
+check(rewardPhp.includes('function candidateDelete'), 'backend has candidateDelete')
+check(rewardPhp.includes('canManageCandidate'), 'backend validates candidate management permission')
+check(rewardPhp.includes('canDeleteCandidate'), 'backend validates independent candidate delete permission')
+check(rewardPhp.includes("'candidatedelete'"), 'backend checks reward/candidateDelete role permission')
+check(rewardPhp.includes("'operation_type' => 'delete'"), 'backend preserves delete audit')
+check(rewardPhp.includes('已结算批次中的记录不能直接删除'), 'backend blocks deletion after batch settlement')
+check(rewardPhp.includes('isRewardVisibilityAdmin'), 'backend has dedicated reward visibility administrator check')
+check(rewardPhp.includes('15628812133'), 'only the designated reward administrator account can view all records')
+check(rewardPhp.includes('candidateVisibleToUser'), 'backend protects candidate detail and operations with relation scope')
+check(rewardPhp.includes("whereOr('r.create_user_id'"), 'candidate list includes records created by current user')
+check(rewardPhp.includes("whereOr('r.reviewer_user_id'"), 'candidate list includes records reviewed by current user')
+check(rewardPhp.includes('relatedCandidateSummary'), 'ordinary user summary is scoped to related candidates')
+check(rewardPhp.includes("(string)$batch['status'] === '已结算'"), 'settled batch candidates remain protected from deletion')
+check(rewardPhp.includes("Db::name('reward_batch')->where(['batch_id' => $batchId])->update(['total_amount'"), 'deleting from pending batch recalculates its total')
+check(rewardPhp.includes("Db::name('reward_offset')->where(['cand_id' => $candId])->delete()"), 'deleting an offset candidate cleans linked offset rows after audit snapshot')
 check(!rewardPhp.includes("r\\.\\*"), 'backend does not use r.* in queries')
 check(rewardPhp.includes('buildCandidateQuery'), 'backend uses separate Query objects')
 check(rewardPhp.includes('safeInsertAudit'), 'backend has safe audit insert helper')

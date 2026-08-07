@@ -14,19 +14,16 @@
       <flexbox
         justify="space-around"
         class="content-wrapper__hd">
-        <flexbox>
-          <xr-avatar
-            v-if="taskType == 1"
-            :name="safeUserInfo.realname"
-            :size="40"
-            :src="safeUserInfo.img"
-            class="head-img" />
+        <flexbox class="progress-overview">
           <i
-            v-else
-            class="wk wk-multi-user user-icon head-img" />
+            class="wk wk-task progress-icon" />
           <el-progress
             :percentage="progressValue"
-            :format="progressFormat" />
+            :show-text="false" />
+          <div class="progress-copy">
+            <strong>任务完成进度</strong>
+            <span>{{ progress.stopTask }} / {{ progress.allTask }} 已完成</span>
+          </div>
         </flexbox>
         <flexbox class="header-right" justify="flex-end">
           <el-input
@@ -59,6 +56,20 @@
       </flexbox>
 
       <div class="cell-section">
+        <div class="list-heading">
+          <div class="list-heading__main">
+            <span>任务列表</span>
+            <span class="list-heading__count">共 {{ progress.allTask }} 项</span>
+          </div>
+          <div class="list-heading__columns">
+            <span class="heading-due">截止时间</span>
+            <span class="heading-tag">标签</span>
+            <span class="heading-wrk">W/R/K</span>
+            <span class="heading-stats">关联</span>
+            <span class="heading-owner">负责人</span>
+            <span class="heading-action">操作</span>
+          </div>
+        </div>
         <div
           v-infinite-scroll="getList"
           :key="`${scrollKey}${tabsSelectValue}`"
@@ -71,12 +82,17 @@
             :data-index="index"
             @on-handle="taskCellHandle" />
         </div>
+        <div v-if="!loading && list.length === 0" class="task-empty">
+          <i class="wk wk-task" />
+          <div class="task-empty__title">暂无符合条件的任务</div>
+          <div class="task-empty__desc">可以调整筛选条件，或在下方快速新建任务</div>
+        </div>
         <p
           v-if="loading"
           class="scroll-bottom-tips">加载中...</p>
         <p
           v-if="noMore"
-          class="scroll-bottom-tips">没有更多了</p>
+          class="scroll-bottom-tips is-finished">已显示全部 {{ list.length }} 条任务</p>
       </div>
 
       <div class="task-add">
@@ -424,7 +440,8 @@ export default {
 .main {
   position: relative;
   height: 100%;
-  width: 920px;
+  width: 100%;
+  min-width: 900px;
 }
 
 .examine-tabs-head {
@@ -436,10 +453,11 @@ export default {
   overflow: hidden;
   position: relative;
   margin-top: 15px;
-  padding: 70px 0 76px;
+  padding: 64px 0 76px;
   background-color: white;
-  border-radius: $xr-border-radius-base;
-  border: 1px solid $xr-border-line-color;
+  border-radius: 8px;
+  border: 1px solid #e7eaf0;
+  box-shadow: 0 4px 18px rgba(31, 45, 61, 0.06);
 
   &__hd {
     position: absolute;
@@ -447,11 +465,11 @@ export default {
     top: 0;
     right: 1px;
     z-index: 5;
-    padding: 15px;
-
-    .head-img {
-      margin-right: 30px;
-    }
+    height: 56px;
+    padding: 10px 20px;
+    background: linear-gradient(135deg, #f7faff 0%, #fff 70%);
+    border-bottom: 1px solid #edf0f5;
+    box-sizing: border-box;
 
     .el-date-editor {
       width: 150px;
@@ -462,7 +480,7 @@ export default {
     }
 
     .el-progress {
-      width: 300px;
+      width: 180px;
     }
 
     .label {
@@ -476,8 +494,11 @@ export default {
     }
 
     .header-right {
+      width: auto;
+      flex-shrink: 0;
+
       .el-input {
-        width: 200px;
+        width: 220px;
         margin-right: 10px;
       }
       .el-button {
@@ -492,6 +513,117 @@ export default {
 .cell-section {
   height: 100%;
   overflow: auto;
+  padding: 0 12px 12px;
+}
+
+.scroll-bottom-tips.is-finished {
+  margin: 0;
+  padding: 12px 0 6px;
+  color: #a0a8b5;
+  font-size: 12px;
+  line-height: 20px;
+  text-align: center;
+}
+
+.progress-overview {
+  width: auto;
+  flex: 1;
+}
+
+.progress-icon {
+  display: inline-block;
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  margin-right: 14px;
+  border-radius: 8px;
+  background: #2f6bff;
+  color: #fff;
+  font-size: 17px;
+  line-height: 32px;
+  text-align: center;
+}
+
+.progress-copy {
+  display: flex;
+  align-items: center;
+  margin-left: 16px;
+  line-height: 24px;
+  white-space: nowrap;
+
+  strong {
+    color: #253858;
+    font-size: 14px;
+  }
+
+  span {
+    margin-left: 10px;
+    color: #8a94a6;
+    font-size: 12px;
+  }
+}
+
+.list-heading {
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  height: 36px;
+  padding: 0 14px;
+  background: #fff;
+  color: #253858;
+  font-size: 14px;
+  font-weight: 600;
+  border-bottom: 1px solid #edf0f5;
+  box-sizing: border-box;
+
+  &__main {
+    display: flex;
+    flex: 1;
+    align-items: center;
+    min-width: 0;
+  }
+
+  &__count {
+    margin-left: 12px;
+    color: #98a2b3;
+    font-size: 12px;
+    font-weight: 400;
+  }
+
+  &__columns {
+    display: grid;
+    grid-template-columns: 138px 72px 100px 52px 48px 58px;
+    flex-shrink: 0;
+    color: #98a2b3;
+    font-size: 12px;
+    font-weight: 400;
+    text-align: center;
+  }
+}
+
+.task-empty {
+  padding: 72px 20px;
+  color: #a5adba;
+  text-align: center;
+
+  > i {
+    display: inline-block;
+    margin-bottom: 16px;
+    color: #c7d2e5;
+    font-size: 42px;
+  }
+
+  &__title {
+    margin-bottom: 8px;
+    color: #5e6c84;
+    font-size: 15px;
+  }
+
+  &__desc {
+    font-size: 12px;
+  }
 }
 
 
@@ -503,7 +635,9 @@ export default {
   right: 1px;
   z-index: 5;
   background-color: white;
-  padding: 15px;
+  padding: 14px 20px;
+  border-top: 1px solid #edf0f5;
+  box-shadow: 0 -4px 12px rgba(31, 45, 61, 0.03);
 }
 
 .user-icon {

@@ -539,6 +539,7 @@ return [
     'crm/reward/candidateList'=> ['crm/reward/candidateList',['method' => 'POST']],
     'crm/reward/candidateRead' => ['crm/reward/candidateRead', ['method' => 'POST']],
     'crm/reward/candidateUpdate' => ['crm/reward/candidateUpdate', ['method' => 'POST']],
+    'crm/reward/candidateDelete' => ['crm/reward/candidateDelete', ['method' => 'POST']],
     'crm/reward/candidateAuditList' => ['crm/reward/candidateAuditList', ['method' => 'POST']],
     'crm/reward/ruleList'     => ['crm/reward/ruleList', ['method' => 'POST']],
     'crm/reward/ruleSave'     => ['crm/reward/ruleSave', ['method' => 'POST']],

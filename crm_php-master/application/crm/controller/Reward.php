@@ -14,7 +14,7 @@ class Reward extends ApiCommon
 {
     public function _initialize()
     {
-        $action = ['permission' => [''], 'allow' => ['dictionary', 'candidatesave', 'candidatelist', 'candidateread', 'candidateupdate', 'candidateauditlist', 'review', 'batchcreate', 'batchsettle', 'offset', 'configsave', 'expensesave', 'expenselist', 'approvalrequest', 'approvaldecide', 'approvalcheck', 'stageoffsetcalc', 'paymentrecord', 'paymentconfirm', 'rulelist', 'rulesave', 'ruletoggle', 'ruledelete', 'businesstypestagelist', 'manualrulelist', 'manualrulesave', 'manualruledelete']];
+        $action = ['permission' => [''], 'allow' => ['dictionary', 'candidatesave', 'candidatelist', 'candidateread', 'candidateupdate', 'candidatedelete', 'candidateauditlist', 'review', 'batchcreate', 'batchsettle', 'offset', 'configsave', 'expensesave', 'expenselist', 'approvalrequest', 'approvaldecide', 'approvalcheck', 'stageoffsetcalc', 'paymentrecord', 'paymentconfirm', 'rulelist', 'rulesave', 'ruletoggle', 'ruledelete', 'businesstypestagelist', 'manualrulelist', 'manualrulesave', 'manualruledelete']];
         Hook::listen('check_auth', $action);
         if (!in_array(strtolower(Request::instance()->action()), $action['permission'])) {
             parent::_initialize();
@@ -24,11 +24,13 @@ class Reward extends ApiCommon
     public function dictionary()
     {
         $s = new RewardService();
+        $isRewardAdmin = $this->isRewardVisibilityAdmin($this->userInfo);
         return resultArray(['data' => [
             'fixed_amounts' => RewardService::FIXED_AMOUNTS,
             'statuses' => ['待审核','已通过','已驳回','已结算','已冲销','已作废'],
-            'summary' => $s->summary(),
+            'summary' => $isRewardAdmin ? $s->summary() : $this->relatedCandidateSummary((int)$this->userInfo['id']),
             'config' => RewardService::configStatus(),
+            'is_reward_admin' => $isRewardAdmin,
         ]]);
     }
 
@@ -272,6 +274,8 @@ class Reward extends ApiCommon
     public function candidateList()
     {
         $param = $this->param;
+        $canDeleteCandidate = $this->canDeleteCandidate((int)$this->userInfo['id']);
+        $scopeUserId = $this->isRewardVisibilityAdmin($this->userInfo) ? 0 : (int)$this->userInfo['id'];
         $hasUpdateUserCol = $this->rewardCandidateHasColumn('update_user_id');
         $page = max(1, (int)($param['page'] ?? 1));
         $limit = max(1, min(200, (int)($param['limit'] ?? 50)));
@@ -281,7 +285,7 @@ class Reward extends ApiCommon
             . 'r.evidence_note,r.rules_version,r.status,r.occurred_time,'
             . 'r.create_user_id,r.create_time,r.update_time,'
             . 'r.batch_id,r.reviewer_user_id,r.review_time,r.review_note,'
-            . 'r.customer_id,r.business_id';
+            . 'r.customer_id,r.business_id,rb.status as batch_status';
         if ($this->rewardCandidateHasColumn('stage_name')) $baseFields .= ',r.stage_name';
         if ($this->rewardCandidateHasColumn('rule_id')) $baseFields .= ',r.rule_id';
         if ($hasUpdateUserCol) $baseFields .= ',r.update_user_id';
@@ -290,11 +294,11 @@ class Reward extends ApiCommon
         if ($hasUpdateUserCol) $joinFields .= ',uu.realname as update_user_name';
 
         // COUNT 查询（独立 Query 对象）
-        $countQuery = $this->buildCandidateQuery($param);
+        $countQuery = $this->buildCandidateQuery($param, $scopeUserId);
         $total = $countQuery->count();
 
         // 列表查询（独立 Query 对象，不复用 $q）
-        $listQuery = $this->buildCandidateQuery($param);
+        $listQuery = $this->buildCandidateQuery($param, $scopeUserId);
         if ($hasUpdateUserCol) {
             $listQuery->join('__ADMIN_USER__ uu', 'r.update_user_id=uu.id', 'LEFT');
         }
@@ -316,6 +320,9 @@ class Reward extends ApiCommon
             }
             $row['can_edit'] = in_array($row['status'], [RewardService::ST_PENDING, RewardService::ST_REJECTED, RewardService::ST_SPECIAL], true)
                 || ($row['status'] === RewardService::ST_APPROVED && (int)($row['batch_id'] ?? 0) === 0);
+            $row['can_delete'] = $canDeleteCandidate
+                && (string)($row['batch_status'] ?? '') !== '已结算'
+                && in_array($row['status'], [RewardService::ST_PENDING, RewardService::ST_REJECTED, RewardService::ST_SPECIAL, RewardService::ST_APPROVED, RewardService::ST_OFFSET], true);
         }
         unset($row);
         return resultArray(['data' => ['list' => $list, 'dataCount' => $total]]);
@@ -324,13 +331,22 @@ class Reward extends ApiCommon
     /**
      * 构建奖励候选查询（每次返回新的 Query 对象，避免状态污染）
      */
-    private function buildCandidateQuery($param)
+    private function buildCandidateQuery($param, $scopeUserId = 0)
     {
         $q = Db::name('reward_candidate')->alias('r')
             ->join('__ADMIN_USER__ u', 'r.user_id=u.id', 'LEFT')
             ->join('__CRM_CUSTOMER__ c', 'r.customer_id=c.customer_id', 'LEFT')
             ->join('__CRM_BUSINESS__ b', 'r.business_id=b.business_id', 'LEFT')
-            ->join('__ADMIN_USER__ cu', 'r.create_user_id=cu.id', 'LEFT');
+            ->join('__ADMIN_USER__ cu', 'r.create_user_id=cu.id', 'LEFT')
+            ->join('__REWARD_BATCH__ rb', 'r.batch_id=rb.batch_id', 'LEFT');
+        if ((int)$scopeUserId > 0) {
+            $scopeUserId = (int)$scopeUserId;
+            $q->where(function($query) use ($scopeUserId) {
+                $query->where('r.user_id', $scopeUserId)
+                    ->whereOr('r.create_user_id', $scopeUserId)
+                    ->whereOr('r.reviewer_user_id', $scopeUserId);
+            });
+        }
         if (!empty($param['status'])) $q->where(['r.status' => $param['status']]);
         if (!empty($param['user_id'])) $q->where(['r.user_id' => (int)$param['user_id']]);
         if (!empty($param['direction'])) {
@@ -369,6 +385,65 @@ class Reward extends ApiCommon
         }
     }
 
+    /** 超级管理员或拥有 crm/reward/update 权限的人员可以管理奖惩候选。 */
+    private function canManageCandidate($userId)
+    {
+        $userId = (int)$userId;
+        if ($userId <= 0) return false;
+        if (isSuperAdministrators($userId)) return true;
+        $userModel = new \app\admin\model\User();
+        $authIds = (array)$userModel->getUserByPer('crm', 'reward', 'update');
+        return in_array($userId, $authIds);
+    }
+
+    /** 超级管理员或角色拥有“删除候选”权限时可以删除奖惩候选。 */
+    private function canDeleteCandidate($userId)
+    {
+        $userId = (int)$userId;
+        if ($userId <= 0) return false;
+        if (isSuperAdministrators($userId)) return true;
+        $userModel = new \app\admin\model\User();
+        $authIds = (array)$userModel->getUserByPer('crm', 'reward', 'candidatedelete');
+        return in_array($userId, $authIds);
+    }
+
+    /** 指定奖励管理员账号可查看全部奖惩，其余账号仅查看本人相关数据。 */
+    private function isRewardVisibilityAdmin(array $userInfo)
+    {
+        $adminLogin = '15628812133';
+        if ((string)($userInfo['username'] ?? '') === $adminLogin || (string)($userInfo['mobile'] ?? '') === $adminLogin) {
+            return true;
+        }
+        $userId = (int)($userInfo['id'] ?? 0);
+        if ($userId <= 0) return false;
+        $account = Db::name('admin_user')->where('id', $userId)->field('username,mobile')->find();
+        return $account && ((string)$account['username'] === $adminLogin || (string)$account['mobile'] === $adminLogin);
+    }
+
+    /** 判断候选记录是否与当前账号相关。 */
+    private function candidateVisibleToUser(array $candidate, array $userInfo)
+    {
+        if ($this->isRewardVisibilityAdmin($userInfo)) return true;
+        $userId = (int)($userInfo['id'] ?? 0);
+        return $userId > 0 && in_array($userId, [
+            (int)($candidate['user_id'] ?? 0),
+            (int)($candidate['create_user_id'] ?? 0),
+            (int)($candidate['reviewer_user_id'] ?? 0),
+        ], true);
+    }
+
+    /** 普通账号的汇总也必须按本人相关范围统计，不能泄露全员数据。 */
+    private function relatedCandidateSummary($userId)
+    {
+        $out = [];
+        $statuses = [RewardService::ST_PENDING, RewardService::ST_SPECIAL, RewardService::ST_APPROVED, RewardService::ST_REJECTED, RewardService::ST_SETTLED, RewardService::ST_OFFSET, RewardService::ST_VOIDED];
+        foreach ($statuses as $status) {
+            $out[$status] = (int)$this->buildCandidateQuery(['status' => $status], (int)$userId)->count();
+        }
+        $out['approved_amount'] = (float)$this->buildCandidateQuery(['status' => RewardService::ST_APPROVED], (int)$userId)->sum('r.amount');
+        return $out;
+    }
+
     /** 审核：approve/reject；本人回避；仅待审核可审 */
     public function review()
     {
@@ -379,6 +454,7 @@ class Reward extends ApiCommon
         if (!in_array($decision, ['approve', 'reject'], true)) return resultArray(['error' => '请选择审核操作（通过或驳回）']);
         $c = Db::name('reward_candidate')->where(['cand_id' => $candId])->find();
         if (!$c) return resultArray(['error' => '候选记录不存在']);
+        if (!$this->candidateVisibleToUser($c, $userInfo)) return resultArray(['error' => '无权操作该奖惩候选']);
         if (!in_array($c['status'], [RewardService::ST_PENDING, RewardService::ST_SPECIAL], true)) {
             return resultArray(['error' => '仅待审核/待专项审批的候选可审核']);
         }
@@ -424,6 +500,7 @@ class Reward extends ApiCommon
     public function batchCreate()
     {
         $param = $this->param; $userInfo = $this->userInfo;
+        if (!$this->isRewardVisibilityAdmin($userInfo)) return resultArray(['error' => '仅奖励管理员可以生成结算批次']);
         $period = trim((string)($param['period'] ?? date('Ym')));
         $approved = Db::name('reward_candidate')->where(['status' => RewardService::ST_APPROVED])->select();
         if (!$approved) return resultArray(['error' => '没有已通过的候选可结算']);
@@ -448,7 +525,8 @@ class Reward extends ApiCommon
     /** 批次结算：标记批次已结算，候选 → 已结算（仅导出给财务，不自动发放） */
     public function batchSettle()
     {
-        $param = $this->param;
+        $param = $this->param; $userInfo = $this->userInfo;
+        if (!$this->isRewardVisibilityAdmin($userInfo)) return resultArray(['error' => '仅奖励管理员可以执行结算']);
         $batchId = (int)($param['batch_id'] ?? 0);
         $b = Db::name('reward_batch')->where(['batch_id' => $batchId])->find();
         if (!$b) return resultArray(['error' => '批次不存在']);
@@ -475,6 +553,7 @@ class Reward extends ApiCommon
         if ($candId <= 0 || $offsetAmount <= 0) return resultArray(['error' => '参数错误']);
         $c = Db::name('reward_candidate')->where(['cand_id' => $candId])->find();
         if (!$c) return resultArray(['error' => '候选不存在']);
+        if (!$this->candidateVisibleToUser($c, $userInfo)) return resultArray(['error' => '无权操作该奖惩候选']);
         $now = time();
         Db::startTrans();
         try {
@@ -709,6 +788,7 @@ class Reward extends ApiCommon
             ->field($readFields)
             ->where(['r.cand_id' => $candId])->find();
         if (!$row) return resultArray(['error' => '候选不存在']);
+        if (!$this->candidateVisibleToUser($row, $this->userInfo)) return resultArray(['error' => '无权查看该奖惩候选']);
         $row['occurred_date'] = !empty($row['occurred_time']) ? date('Y-m-d', $row['occurred_time']) : '';
         $row['direction'] = (float)$row['amount'] < 0 ? '处罚' : '奖励';
         return resultArray(['data' => $row]);
@@ -725,13 +805,8 @@ class Reward extends ApiCommon
         if ($changeReason === '') return resultArray(['error' => '必须填写修改原因']);
 
         // 权限校验：超级管理员或拥有 reward update 权限
-        $isSuperAdmin = isSuperAdministrators($userInfo['id']);
-        if (!$isSuperAdmin) {
-            $userModel = new \app\admin\model\User();
-            $authIds = $userModel->getUserByPer('crm', 'reward', 'update');
-            if (!in_array($userInfo['id'], $authIds)) {
-                return resultArray(['error' => '无权编辑奖惩候选']);
-            }
+        if (!$this->canManageCandidate((int)$userInfo['id'])) {
+            return resultArray(['error' => '无权编辑奖惩候选']);
         }
 
         Db::startTrans();
@@ -739,6 +814,7 @@ class Reward extends ApiCommon
             // 锁定候选行
             $c = Db::name('reward_candidate')->where(['cand_id' => $candId])->lock(true)->find();
             if (!$c) throw new \Exception('候选不存在');
+            if (!$this->candidateVisibleToUser($c, $userInfo)) throw new \Exception('无权操作该奖惩候选');
 
             // 状态规则：已结算/已冲销/已进入结算批次禁止编辑
             $forbiddenStatuses = [RewardService::ST_SETTLED, RewardService::ST_OFFSET];
@@ -849,12 +925,94 @@ class Reward extends ApiCommon
         }
     }
 
+    /**
+     * 删除未结算奖惩候选。
+     * 已结算批次中的记录必须保留；待结算批次中的记录可删除并同步重算批次。
+     * 删除前完整写入候选、批次及冲销快照，确保人员、金额、来源和删除原因可追溯。
+     */
+    public function candidateDelete()
+    {
+        $param = $this->param;
+        $userInfo = $this->userInfo;
+        $candId = (int)($param['cand_id'] ?? 0);
+        $deleteReason = trim((string)($param['delete_reason'] ?? ''));
+        if ($candId <= 0) return resultArray(['error' => '参数错误']);
+        if ($deleteReason === '') return resultArray(['error' => '必须填写删除原因']);
+        if (!$this->canDeleteCandidate((int)$userInfo['id'])) {
+            return resultArray(['error' => '无权删除奖惩候选']);
+        }
+
+        Db::startTrans();
+        try {
+            $candidate = Db::name('reward_candidate')->where(['cand_id' => $candId])->lock(true)->find();
+            if (!$candidate) throw new \Exception('候选不存在或已被删除');
+            if (!$this->candidateVisibleToUser($candidate, $userInfo)) throw new \Exception('无权操作该奖惩候选');
+            $batch = [];
+            $batchId = (int)($candidate['batch_id'] ?? 0);
+            if ($batchId > 0) {
+                $batch = Db::name('reward_batch')->where(['batch_id' => $batchId])->lock(true)->find();
+                if ($batch && (string)$batch['status'] === '已结算') {
+                    throw new \Exception('已结算批次中的记录不能直接删除，请保留冲销审计');
+                }
+            }
+            $allowedStatuses = [RewardService::ST_PENDING, RewardService::ST_SPECIAL, RewardService::ST_REJECTED, RewardService::ST_APPROVED, RewardService::ST_OFFSET];
+            if (!in_array((string)$candidate['status'], $allowedStatuses, true)) {
+                throw new \Exception('当前状态（' . $candidate['status'] . '）不能删除，请使用冲销或更正流程');
+            }
+
+            $now = time();
+            $offsets = Db::name('reward_offset')->where(['cand_id' => $candId])->select();
+            $auditSnapshot = $candidate;
+            $auditSnapshot['_batch'] = $batch ?: [];
+            $auditSnapshot['_offsets'] = $offsets ?: [];
+            Db::name('reward_candidate_audit')->insert([
+                'cand_id' => $candId,
+                'operation_type' => 'delete',
+                'old_data_json' => json_encode($auditSnapshot, JSON_UNESCAPED_UNICODE),
+                'new_data_json' => json_encode([], JSON_UNESCAPED_UNICODE),
+                'change_reason' => $deleteReason,
+                'operator_user_id' => (int)$userInfo['id'],
+                'operator_name' => $userInfo['realname'] ?? '',
+                'operation_time' => $now,
+                'request_ip' => Request::instance()->ip(),
+                'create_time' => $now,
+            ]);
+            if ($offsets) Db::name('reward_offset')->where(['cand_id' => $candId])->delete();
+            $deleted = Db::name('reward_candidate')->where(['cand_id' => $candId])->delete();
+            if ((int)$deleted !== 1) throw new \Exception('删除失败，请刷新后重试');
+            if ($batchId > 0 && $batch) {
+                $remainingCount = (int)Db::name('reward_candidate')->where(['batch_id' => $batchId])->count();
+                if ($remainingCount === 0) {
+                    Db::name('reward_batch')->where(['batch_id' => $batchId])->delete();
+                } else {
+                    $remainingAmount = (float)Db::name('reward_candidate')->where(['batch_id' => $batchId])->sum('amount');
+                    Db::name('reward_batch')->where(['batch_id' => $batchId])->update(['total_amount' => round($remainingAmount, 2)]);
+                }
+            }
+
+            SystemActionLog($userInfo['id'], 'crm_reward', 'reward', $candId, 'delete',
+                '删除奖惩候选', '', '',
+                '删除 RC-' . str_pad((string)$candId, 6, '0', STR_PAD_LEFT) .
+                '，候选人ID=' . (int)$candidate['user_id'] .
+                '，金额=' . (float)$candidate['amount'] .
+                '，原因：' . $deleteReason);
+            Db::commit();
+            return resultArray(['data' => ['cand_id' => $candId, 'deleted' => true]]);
+        } catch (\Exception $e) {
+            Db::rollback();
+            return resultArray(['error' => $e->getMessage()]);
+        }
+    }
+
     /** 奖惩候选修改记录列表 */
     public function candidateAuditList()
     {
         $param = $this->param;
         $candId = (int)($param['cand_id'] ?? 0);
         if ($candId <= 0) return resultArray(['error' => '参数错误']);
+        $candidate = Db::name('reward_candidate')->where(['cand_id' => $candId])->field('cand_id,user_id,create_user_id,reviewer_user_id')->find();
+        if (!$candidate) return resultArray(['error' => '候选不存在']);
+        if (!$this->candidateVisibleToUser($candidate, $this->userInfo)) return resultArray(['error' => '无权查看该奖惩候选审计']);
         try {
             $list = Db::name('reward_candidate_audit')
                 ->where(['cand_id' => $candId])
