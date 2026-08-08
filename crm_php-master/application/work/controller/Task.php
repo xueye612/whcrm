@@ -1372,6 +1372,10 @@ class Task extends ApiCommon
         // 从任务表补充负责人和截止时间，供评估表单回显
         $task = Db::name('task')->where(['task_id' => $taskId])->field('main_user_id,stop_time,start_time')->find();
         $data['main_user_id'] = $task ? (int)$task['main_user_id'] : 0;
+        $data['main_user_name'] = '';
+        if ($data['main_user_id'] > 0) {
+            $data['main_user_name'] = (string)Db::name('admin_user')->where('id', $data['main_user_id'])->value('realname');
+        }
         $data['stop_time'] = $task ? $task['stop_time'] : '';
         $data['start_time'] = $task ? (int)$task['start_time'] : 0;
         // 返回验收人姓名
@@ -2165,6 +2169,9 @@ class Task extends ApiCommon
                     'description' => $testScope,
                     'work_id' => (int)$originTask['work_id'],
                     'class_id' => (int)$originTask['class_id'],
+                    // 测试任务可能分配给原项目以外的人员，必须在接收人的“我的任务”中可见。
+                    // 显式写入可见标记，避免不同环境 task.is_open 默认值不一致。
+                    'is_open' => 1,
                     'main_user_id' => $testerUserId,
                     'create_user_id' => (int)$userInfo['id'],
                     'priority' => $taskPriority,
@@ -2418,10 +2425,24 @@ class Task extends ApiCommon
             return resultArray(['error' => $task]);
         }
         $allExts = Db::name('task_test_ext')->where(['origin_task_id' => $originTaskId])->select();
-        // 过滤软删除的测试任务（is_deleted=1 的不显示）
+        // 兼容旧库没有 is_deleted 字段的情况：deleteTest 仍会将底层 task 标记为隐藏，
+        // 因此列表必须同时排除扩展表软删除和底层任务隐藏的数据。
+        $hiddenTaskMap = [];
+        $allTaskIds = [];
+        foreach ($allExts as $e) {
+            $allTaskIds[] = (int)$e['task_id'];
+        }
+        if ($allTaskIds) {
+            $hiddenTaskIds = Db::name('task')->whereIn('task_id', $allTaskIds)->where('ishidden', 1)->column('task_id');
+            foreach ($hiddenTaskIds as $hiddenTaskId) {
+                $hiddenTaskMap[(int)$hiddenTaskId] = true;
+            }
+        }
         $exts = [];
         foreach ($allExts as $e) {
-            if (!isset($e['is_deleted']) || (int)$e['is_deleted'] === 0) {
+            $isExtDeleted = isset($e['is_deleted']) && (int)$e['is_deleted'] === 1;
+            $isTaskHidden = isset($hiddenTaskMap[(int)$e['task_id']]);
+            if (!$isExtDeleted && !$isTaskHidden) {
                 $exts[] = $e;
             }
         }
@@ -2581,8 +2602,11 @@ class Task extends ApiCommon
         $version = (int)($param['version'] ?? 0);
         $reason = trim((string)($param['reason'] ?? '取消该人员测试任务'));
         $now = time();
-        // 幂等：已删除则直接返回成功
-        if (!empty($ext['is_deleted']) && (int)$ext['is_deleted'] === 1) {
+        // 幂等：扩展表已标记删除，或旧库通过底层任务隐藏完成软删除，均直接返回成功。
+        $testTask = Db::name('task')->where(['task_id' => $taskId])->field('task_id,ishidden')->find();
+        if ((!empty($ext['is_deleted']) && (int)$ext['is_deleted'] === 1)
+            || !$testTask
+            || (int)$testTask['ishidden'] === 1) {
             return resultArray(['data' => ['task_id' => $taskId, 'deleted' => true, 'idempotent' => true]]);
         }
         // 版本校验

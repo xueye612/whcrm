@@ -43,7 +43,7 @@
       <div class="meta-slot tag-slot">
         <div
           v-if="data.lableList && data.lableList.length > 0"
-          class="tag-box">
+          :class="['tag-box', { 'has-more-labels': hideShowLabels.length }]">
           <span
             v-for="(item, index) in showLabels"
             :key="index"
@@ -68,7 +68,7 @@
                   style="border-radius: 3px; color: #FFF; padding: 3px 10px;">{{ item.name }}</span>
               </div>
             </div>
-            <el-button class="more-btn" icon="el-icon-more"/>
+            <span class="more-count" @click.stop>+{{ hideShowLabels.length }}</span>
           </el-tooltip>
         </div>
         <span v-else class="empty-meta">—</span>
@@ -399,7 +399,10 @@ export default {
       display: flex;
       align-items: center;
       justify-content: center;
+      width: 100%;
       min-width: 0;
+      gap: 3px;
+      overflow: hidden;
       .item-label {
         display: inline-block;
       }
@@ -415,14 +418,30 @@ export default {
         text-overflow: ellipsis;
         white-space: nowrap;
         font-size: 12px;
+        flex-shrink: 1;
+      }
+      &.has-more-labels .k-name {
+        max-width: 42px;
+        padding: 0 6px;
       }
     }
   }
 }
 
-.more-btn {
-  padding: 3px 8px;
-  margin-right: 6px;
+.more-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 22px;
+  height: 20px;
+  line-height: 20px;
+  border: 1px solid #dcdfe6;
+  border-radius: 3px;
+  box-sizing: border-box;
+  color: #606266;
+  background: #fff;
+  font-size: 11px;
+  cursor: default;
 }
 
 .list:hover {

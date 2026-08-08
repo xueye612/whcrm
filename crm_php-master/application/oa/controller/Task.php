@@ -244,7 +244,9 @@ class Task extends ApiCommon
                 if (in_array($userInfo['id'], $adminIds)) {
                     $type = 't.is_open = 1';
                 } else {
-                    $type = 't.is_open = 1 AND (t.main_user_id =' . $userInfo['id'] . ' OR t.owner_user_id like "%,' . $userInfo['id'] . ',%")';
+                    // 普通用户的“全部”应包含所有明确分配给自己的任务。
+                    // 测试任务可能继承私有项目属性，不能再用 is_open=1 把接收人排除。
+                    $type = '(t.main_user_id =' . $userInfo['id'] . ' OR t.owner_user_id like "%,' . $userInfo['id'] . ',%")';
                 }
             }
             $where['t.ishidden'] = 0;

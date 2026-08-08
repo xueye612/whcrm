@@ -195,7 +195,11 @@
         </el-row>
         <div class="wp-dialog-section-title">执行与验收安排</div>
         <el-form-item label="任务说明" prop="acceptance_criteria">
-          <tinymce v-model="evaluateForm.acceptance_criteria" :height="260" />
+          <tinymce
+            v-if="showEvaluate"
+            :key="'evaluate-editor-' + evaluateEditorKey"
+            v-model="evaluateForm.acceptance_criteria"
+            :height="260" />
         </el-form-item>
         <el-row :gutter="16">
           <el-col :xs="24" :sm="12">
@@ -239,7 +243,11 @@
         </el-row>
         <div class="wp-dialog-section-title">执行与验收安排</div>
         <el-form-item label="任务说明" prop="acceptance_criteria">
-          <tinymce v-model="acceptanceForm.acceptance_criteria" :height="260" />
+          <tinymce
+            v-if="showAcceptance"
+            :key="'acceptance-editor-' + acceptanceEditorKey"
+            v-model="acceptanceForm.acceptance_criteria"
+            :height="260" />
         </el-form-item>
         <el-form-item label="验收人" prop="acceptance_user_id">
           <el-select v-model="acceptanceForm.acceptance_user_id" filterable placeholder="选择验收人" style="width:100%">
@@ -417,7 +425,9 @@ export default {
       userList: [],
       statusOrder: STATUS_ORDER,
       showEvaluate: false,
+      evaluateEditorKey: 0,
       showAcceptance: false,
+      acceptanceEditorKey: 0,
       showReturn: false,
       returnAction: '',
       evaluateForm: { init_w: '', init_r: '', init_k: '', acceptance_criteria: '', main_user_id: '', stop_time: '' },
@@ -550,7 +560,10 @@ export default {
       try {
         const res = await workQueryMemberListAPI()
         this.userList = res.data || []
-      } catch (e) { /* 忽略：错误已由全局拦截器提示 */ }
+      } catch (e) {
+        this.userList = []
+      }
+      return this.userList
     },
     wrkText(type, val) {
       if (!val) return '尚未评估'
@@ -620,22 +633,35 @@ export default {
         this.$emit('refresh')
       } catch (e) { /* 忽略：错误已由全局拦截器提示 */ } finally { this.acting = false }
     },
-    openEvaluate() {
-      var stopTime = this.data.stop_time || ''
-      if (stopTime && /^\d+$/.test(String(stopTime))) {
-        var d = new Date(Number(stopTime) * 1000)
-        stopTime = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0')
-      } else if (stopTime && stopTime.indexOf(' ') > 0) {
-        stopTime = stopTime.substring(0, 10)
+    formDate(value) {
+      if (!value) return ''
+      var text = String(value)
+      if (/^\d+$/.test(text)) {
+        var timestamp = Number(text)
+        var d = new Date(timestamp > 9999999999 ? timestamp : timestamp * 1000)
+        if (!isNaN(d.getTime())) {
+          return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0')
+        }
+      }
+      return text.substring(0, 10)
+    },
+    async openEvaluate() {
+      // 每次打开都刷新负责人选项，避免异步列表尚未完成时只显示 ID 或无法正确回填。
+      await this.loadUsers()
+      var mainUserId = this.data.main_user_id ? Number(this.data.main_user_id) : ''
+      if (mainUserId && !this.userList.some(function(user) { return Number(user.id) === mainUserId })) {
+        this.userList.push({ id: mainUserId, realname: this.data.main_user_name || ('#' + mainUserId) })
       }
       this.evaluateForm = {
         init_w: this.data.init_w || 'W1',
         init_r: this.data.init_r || 'R1',
         init_k: this.data.init_k || 'K1',
         acceptance_criteria: this.data.acceptance_criteria || '',
-        main_user_id: this.data.main_user_id ? Number(this.data.main_user_id) : '',
-        stop_time: stopTime
+        main_user_id: mainUserId,
+        stop_time: this.formDate(this.data.stop_time)
       }
+      // TinyMCE 在 append-to-body 的隐藏弹窗中不能安全复用；每次打开创建新实例。
+      this.evaluateEditorKey += 1
       this.showEvaluate = true
       this.$nextTick(function() {
         if (this.$refs.evaluateFormRef) this.$refs.evaluateFormRef.clearValidate()
@@ -699,6 +725,7 @@ export default {
         acceptance_criteria: this.data.acceptance_criteria || '',
         acceptance_user_id: this.data.acceptance_user_id ? Number(this.data.acceptance_user_id) : ''
       }
+      this.acceptanceEditorKey += 1
       this.showAcceptance = true
       this.$nextTick(function() {
         if (this.$refs.acceptanceFormRef) this.$refs.acceptanceFormRef.clearValidate()

@@ -348,10 +348,23 @@ class WorkflowService
         $allTestExts = Db::name('task_test_ext')
             ->where(['origin_task_id' => $originTaskId])
             ->select();
-        // 排除软删除的测试任务
+        // 排除软删除的测试任务；旧库没有 is_deleted 字段时以底层 task.ishidden 为准。
+        $hiddenTaskMap = [];
+        $allTestTaskIds = [];
+        foreach ($allTestExts as $ext) {
+            $allTestTaskIds[] = (int)$ext['task_id'];
+        }
+        if ($allTestTaskIds) {
+            $hiddenTaskIds = Db::name('task')->whereIn('task_id', $allTestTaskIds)->where('ishidden', 1)->column('task_id');
+            foreach ($hiddenTaskIds as $hiddenTaskId) {
+                $hiddenTaskMap[(int)$hiddenTaskId] = true;
+            }
+        }
         $testExts = [];
         foreach ($allTestExts as $ext) {
-            if (!isset($ext['is_deleted']) || (int)$ext['is_deleted'] === 0) {
+            $isExtDeleted = isset($ext['is_deleted']) && (int)$ext['is_deleted'] === 1;
+            $isTaskHidden = isset($hiddenTaskMap[(int)$ext['task_id']]);
+            if (!$isExtDeleted && !$isTaskHidden) {
                 $testExts[] = $ext;
             }
         }

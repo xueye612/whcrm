@@ -269,6 +269,7 @@ assert.ok(ledgerPhp.indexOf('请先执行 P0 迁移') !== -1, 'Ledger 缺迁移�
 
 // ===================== 不存在独立测试系统的检查 =====================
 const taskController = fs.readFileSync(path.resolve(__dirname, '../../crm_php-master/application/work/controller/Task.php'), 'utf8')
+const oaTaskController = fs.readFileSync(path.resolve(__dirname, '../../crm_php-master/application/oa/controller/Task.php'), 'utf8')
 assert.ok(taskController.indexOf('CREATE TABLE') === -1, '控制器不应含建表语句')
 assert.ok(taskController.indexOf('test_batch') === -1, '不应存在独立 test_batch')
 assert.ok(taskController.indexOf('return-test') === -1, '不应建议重复的 return-test 接口')
@@ -325,6 +326,8 @@ assert.ok(initiateSection.indexOf("date('Y-m-d H:i:s'") !== -1, 'initiateTest �
 assert.ok(initiateSection.indexOf("'start_time' => $startTimeStr") !== -1, 'createTask 的 start_time 应为格式化字符串变量')
 // 确认不再直接传 $now 整数给 start_time
 assert.ok(initiateSection.indexOf("'start_time' => $now") === -1, 'createTask 的 start_time 不应直接传 Unix 整数')
+assert.ok(initiateSection.indexOf("'is_open' => 1") !== -1, '测试任务应显式设为接收人可见')
+assert.ok(oaTaskController.indexOf("$type = '(t.main_user_id ='") !== -1, '普通用户应能在全部任务中看到分配给自己的私有任务')
 
 // ===================== 热修 3：发布门禁按需测试检查 =====================
 var gateSection = wfService.substring(wfService.indexOf('function checkReleaseGate('), wfService.indexOf('function checkReleaseGate(') + 2000)
@@ -872,6 +875,19 @@ assert.ok(panelSrcLatest.indexOf('<tinymce') !== -1 || panelSrcLatest.indexOf('<
 assert.ok(panelSrcLatest.indexOf('960px') !== -1, '弹窗宽度应调整为 960px')
 assert.ok(panelSrcLatest.indexOf('xss') !== -1, 'TaskWorkflowPanel 应引入 xss 进行安全过滤')
 assert.ok(panelSrcLatest.indexOf('v-html') !== -1, 'TaskWorkflowPanel 应使用 v-html 展示富文本')
+assert.ok(panelSrcLatest.indexOf('evaluateEditorKey') !== -1, '评估弹窗每次打开应重建 TinyMCE 实例')
+assert.ok(panelSrcLatest.indexOf('acceptanceEditorKey') !== -1, '验收弹窗每次打开应重建 TinyMCE 实例')
+assert.ok(panelSrcLatest.indexOf('v-if="showEvaluate"') !== -1, '评估弹窗关闭时应销毁 TinyMCE 实例')
+assert.ok(panelSrcLatest.indexOf('v-if="showAcceptance"') !== -1, '验收弹窗关闭时应销毁 TinyMCE 实例')
+assert.ok(panelSrcLatest.indexOf('await this.loadUsers()') !== -1, '评估弹窗打开前应完成负责人列表加载')
+assert.ok(panelSrcLatest.indexOf('stop_time: this.formDate(this.data.stop_time)') !== -1, '评估弹窗应可靠回填截止时间')
+assert.ok(wfReadSection2.indexOf('main_user_name') !== -1, 'workflowRead 应返回负责人姓名作为回填兜底')
+
+var testListSection = taskController.substring(taskController.indexOf('function testList'), taskController.indexOf('function testDetail'))
+var deleteTestSection = taskController.substring(taskController.indexOf('function deleteTest'))
+assert.ok(testListSection.indexOf("where('ishidden', 1)") !== -1, '测试任务列表应排除旧库中已隐藏的测试任务')
+assert.ok(deleteTestSection.indexOf("field('task_id,ishidden')") !== -1, '重复删除应兼容底层任务已隐藏的旧库数据')
+assert.ok(wfService.indexOf("where('ishidden', 1)") !== -1, '发布门禁应忽略旧库中已隐藏的测试任务')
 
 var taskDetailSrc = fs.readFileSync(path.resolve(__dirname, '../src/views/taskExamine/task/components/TaskDetail.vue'), 'utf8')
 assert.ok(taskDetailSrc.indexOf("import Tinymce") !== -1, 'TaskDetail 应引入 Tinymce')
