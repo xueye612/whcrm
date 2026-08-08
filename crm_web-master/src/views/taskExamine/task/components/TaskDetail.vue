@@ -234,7 +234,7 @@
           <task-workflow-panel
             v-if="taskData && taskData.task_id"
             :task-id="taskData.task_id"
-            @refresh="getDetail" />
+            @refresh="handleWorkflowRefresh" />
           <flexbox>
             <flexbox-item class="participant">
               <div class="participant-title">参与人</div>
@@ -803,6 +803,15 @@ export default {
 
   beforeDestroy() {},
   methods: {
+    handleWorkflowRefresh() {
+      this.getDetail()
+      this.$emit('on-handle', {
+        type: 'workflow-refresh',
+        index: this.detailIndex,
+        section: this.detailSection
+      })
+    },
+
     /**
      * 动画完成方法
      */

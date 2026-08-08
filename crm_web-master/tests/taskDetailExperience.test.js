@@ -15,6 +15,7 @@ const root = path.resolve(__dirname, '..')
 const indexVue = fs.readFileSync(path.join(root, 'src/views/taskExamine/task/index.vue'), 'utf8')
 const cellVue = fs.readFileSync(path.join(root, 'src/views/taskExamine/task/components/TaskCell.vue'), 'utf8')
 const detailVue = fs.readFileSync(path.join(root, 'src/views/taskExamine/task/components/TaskDetail.vue'), 'utf8')
+const oaTaskPhp = fs.readFileSync(path.resolve(root, '../crm_php-master/application/oa/controller/Task.php'), 'utf8')
 
 check(indexVue.includes('<span class="heading-action">操作</span>'), 'task list exposes the detail action column')
 check(indexVue.includes('class="task-empty"'), 'task list has an empty state')
@@ -37,5 +38,9 @@ check(detailVue.includes('immediate: true'), 'task detail loads immediately for 
 check(detailVue.includes('this.loadError = message'), 'task detail preserves non-permission load errors')
 check(detailVue.includes('任务详情加载失败'), 'task detail renders a visible load failure state')
 check(detailVue.includes('@click="getDetail"'), 'task detail supports retrying a failed request')
+check(detailVue.includes('@refresh="handleWorkflowRefresh"'), 'workflow updates use the list synchronization handler')
+check(detailVue.includes("type: 'workflow-refresh'"), 'evaluating W/R/K notifies the task list to reload the row')
+check(oaTaskPhp.includes('task_id,init_w,init_r,init_k,final_w,final_r,final_k'), 'my-task API returns initial and final W/R/K values')
+check(oaTaskPhp.includes("['is_test_task']"), 'my-task API distinguishes test tasks from unevaluated tasks')
 
 console.log('taskDetailExperience.test.js: all ' + count + ' checks passed')
