@@ -483,11 +483,12 @@ class Message extends Common
      * @param array $data 关联信息
      * @param array|int $user_id 接收消息员工ID
      * @param boolean $system 是否系统消息
+     * @param boolean $includeSender 接收人中包含发送人时是否仍发送
      * @return bool
      * @author Ymob
      * @datetime 2019-10-17 17:23:05
      */
-    public function send($type, $data, $user_id_list, $system = false)
+    public function send($type, $data, $user_id_list, $system = false, $includeSender = false)
     {
         if (!isset($this->typeList[$type])) {
             $this->error = '消息类型错误';
@@ -523,7 +524,7 @@ class Message extends Common
         $data['action_name'] = strtolower($request->action());
 
         $from_user_id = $data['from_user_id'];
-        if (!in_array($type,[9,17,18,19,20,27])) {
+        if (!$includeSender && !in_array($type,[9,17,18,19,20,27])) {
             $user_id_list = array_filter($user_id_list, function ($val) use ($from_user_id) {
                 return $val !== $from_user_id;
             });

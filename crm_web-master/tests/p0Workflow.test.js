@@ -270,6 +270,8 @@ assert.ok(ledgerPhp.indexOf('请先执行 P0 迁移') !== -1, 'Ledger 缺迁移�
 // ===================== 不存在独立测试系统的检查 =====================
 const taskController = fs.readFileSync(path.resolve(__dirname, '../../crm_php-master/application/work/controller/Task.php'), 'utf8')
 const oaTaskController = fs.readFileSync(path.resolve(__dirname, '../../crm_php-master/application/oa/controller/Task.php'), 'utf8')
+const taskModel = fs.readFileSync(path.resolve(__dirname, '../../crm_php-master/application/work/model/Task.php'), 'utf8')
+const messageModel = fs.readFileSync(path.resolve(__dirname, '../../crm_php-master/application/admin/model/Message.php'), 'utf8')
 assert.ok(taskController.indexOf('CREATE TABLE') === -1, '控制器不应含建表语句')
 assert.ok(taskController.indexOf('test_batch') === -1, '不应存在独立 test_batch')
 assert.ok(taskController.indexOf('return-test') === -1, '不应建议重复的 return-test 接口')
@@ -319,7 +321,7 @@ var pmTaskSrc = fs.readFileSync(path.resolve(__dirname, '../src/api/pm/task.js')
 assert.ok(pmTaskSrc.indexOf('export function workQueryMemberListAPI') !== -1, 'pm/task.js 应真实导出 workQueryMemberListAPI')
 
 // ===================== 热修 2：测试任务时间格式检查 =====================
-var initiateSection = taskController.substring(taskController.indexOf('function initiateTest('), taskController.indexOf('function initiateTest(') + 5000)
+var initiateSection = taskController.substring(taskController.indexOf('function initiateTest('), taskController.indexOf('function initiateTest(') + 9000)
 assert.ok(initiateSection.indexOf('startTimeStr') !== -1, 'initiateTest 应格式化 start_time 为字符串')
 assert.ok(initiateSection.indexOf("date('Y-m-d H:i:s'") !== -1, 'initiateTest 应使用 date() 格式化时间传给 createTask')
 // 确认 start_time 传的是字符串变量而非 $now 整数
@@ -328,6 +330,14 @@ assert.ok(initiateSection.indexOf("'start_time' => $startTimeStr") !== -1, 'crea
 assert.ok(initiateSection.indexOf("'start_time' => $now") === -1, 'createTask 的 start_time 不应直接传 Unix 整数')
 assert.ok(initiateSection.indexOf("'is_open' => 1") !== -1, '测试任务应显式设为接收人可见')
 assert.ok(oaTaskController.indexOf("$type = '(t.main_user_id ='") !== -1, '普通用户应能在全部任务中看到分配给自己的私有任务')
+assert.ok(initiateSection.indexOf("'_skip_allocation_notice' => 1") !== -1, '测试任务应跳过事务内的通用分配通知')
+assert.ok(taskModel.indexOf("unset($param['_skip_allocation_notice'])") !== -1, '通用任务模型应移除内部通知控制参数')
+var testNotifyCommitPos = initiateSection.indexOf('Db::commit()')
+var testNotifySendPos = initiateSection.indexOf('Message::TASK_INVITE', testNotifyCommitPos)
+assert.ok(testNotifyCommitPos !== -1 && testNotifySendPos > testNotifyCommitPos, '测试邀请应在任务事务提交后发送')
+assert.ok(initiateSection.indexOf("'action_id' => $newTaskId", testNotifyCommitPos) !== -1, '测试邀请应指向每位测试人的独立任务')
+assert.ok(initiateSection.indexOf('[$testerUserId]', testNotifyCommitPos) !== -1, '多人测试应逐人发送邀请')
+assert.ok(messageModel.indexOf('$includeSender = false') !== -1 && messageModel.indexOf('!$includeSender') !== -1, '测试人包含发起人时应允许显式发送')
 
 // ===================== 热修 3：发布门禁按需测试检查 =====================
 var gateSection = wfService.substring(wfService.indexOf('function checkReleaseGate('), wfService.indexOf('function checkReleaseGate(') + 2000)

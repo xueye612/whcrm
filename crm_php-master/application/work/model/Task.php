@@ -412,6 +412,10 @@ class Task extends Common
      */
     public function createTask($param)
     {
+        // 部分业务需要在自身事务提交后再发送通知，避免通知先于扩展数据落库。
+        $skipAllocationNotice = !empty($param['_skip_allocation_notice']);
+        unset($param['_skip_allocation_notice']);
+
         # 子任务
         $subtask = !empty($param['subtask']) ? $param['subtask'] : [];
         unset($param['subtask']);
@@ -458,14 +462,16 @@ class Task extends Common
                 $datalog['work_id'] = $param['work_id'] ?: '';
                 $ret = $taskLog->newTaskLog($datalog);
                 //抄送站内信
-                (new Message())->send(
-                    Message::TASK_ALLOCATION,
-                    [
-                        'title' => $param['name'],
-                        'action_id' => $task_id
-                    ],
-                    stringToArray($param['owner_user_id'])
-                );
+                if (!$skipAllocationNotice) {
+                    (new Message())->send(
+                        Message::TASK_ALLOCATION,
+                        [
+                            'title' => $param['name'],
+                            'action_id' => $task_id
+                        ],
+                        stringToArray($param['owner_user_id'])
+                    );
+                }
             }
 
             # 添加活动记录

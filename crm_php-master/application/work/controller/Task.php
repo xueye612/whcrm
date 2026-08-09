@@ -2141,7 +2141,6 @@ class Task extends ApiCommon
         $startTimeStr = date('Y-m-d H:i:s', $now);
         $stopTimeStr = $deadline > 0 ? date('Y-m-d H:i:s', $deadline) : '';
         $createdTaskIds = [];
-        $newlyCreatedTaskIds = []; // 仅跟踪新创建的任务，用于通知幂等
         // 每个测试人员独立事务：并发唯一冲突时回滚该人员的孤儿任务，再读取既有任务
         foreach ($testers as $testerUserId) {
             $testerUserId = (int)$testerUserId;
@@ -2172,6 +2171,8 @@ class Task extends ApiCommon
                     // 测试任务可能分配给原项目以外的人员，必须在接收人的“我的任务”中可见。
                     // 显式写入可见标记，避免不同环境 task.is_open 默认值不一致。
                     'is_open' => 1,
+                    // 测试邀请在扩展记录提交后按测试人单独发送，不使用事务内的通用分配通知。
+                    '_skip_allocation_notice' => 1,
                     'main_user_id' => $testerUserId,
                     'create_user_id' => (int)$userInfo['id'],
                     'priority' => $taskPriority,
@@ -2207,7 +2208,19 @@ class Task extends ApiCommon
                 ]);
                 Db::commit();
                 $createdTaskIds[] = $newTaskId;
-                $newlyCreatedTaskIds[] = $newTaskId;
+                // 事务成功后再通知该测试人，action_id 指向其本人的独立测试任务。
+                // 多人测试时逐人发送，避免只有发起人或首个人收到。
+                try {
+                    (new Message())->send(
+                        Message::TASK_INVITE,
+                        ['title' => $originTask['name'], 'action_id' => $newTaskId],
+                        [$testerUserId],
+                        false,
+                        true
+                    );
+                } catch (\Exception $notifyEx) {
+                    // 通知失败不回滚已创建的测试任务，任务仍可在接收人列表中查看。
+                }
             } catch (\Exception $createEx) {
                 // 唯一索引冲突或其他异常：回滚该测试人员的整个事务，
                 // 确保刚创建的普通任务、关系、消息和日志全部回滚，不留下孤儿任务
@@ -2219,20 +2232,6 @@ class Task extends ApiCommon
                 }
                 // 真实错误（非并发冲突）向上返回
                 return resultArray(['error' => '发起测试失败（测试人员 ' . $testerUserId . '）：' . $createEx->getMessage()]);
-            }
-        }
-        // 加急测试创建成功后向所有测试人员发送一次通知（仅新创建的任务，幂等）
-        if ($isUrgent && $newlyCreatedTaskIds) {
-            $notifyContent = $userInfo['realname'] . ' ' . $originTask['name'];
-            try {
-                $msgModel = new Message();
-                $msgModel->send(
-                    Message::TASK_INVITE,
-                    ['title' => $notifyContent, 'action_id' => $originTaskId],
-                    $testers
-                );
-            } catch (\Exception $e) {
-                // 通知失败不影响测试任务创建
             }
         }
         return resultArray(['data' => ['task_ids' => $createdTaskIds, 'count' => count($createdTaskIds), 'is_urgent' => $isUrgent, 'deadline' => $deadline]]);
