@@ -209,7 +209,7 @@ export default {
 .lsp-aux-val.avg { color: #409EFF; }
 
 .lsp-collapse { margin-top: 4px; }
-.lsp-collapse-title { font-size: 13px; font-weight: 600; color: #303133; }
+.lsp-collapse-title { padding-left: 8px; font-size: 13px; font-weight: 600; color: #303133; }
 .lsp-summary-card { background: #fff; border-radius: 6px; padding: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.04); }
 .lsp-summary-title { font-size: 13px; font-weight: 600; color: #303133; margin-bottom: 6px; padding-left: 6px; border-left: 3px solid #409EFF; }
 

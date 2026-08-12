@@ -72,6 +72,9 @@ check(/discover_user_id'[\s\S]*Number\(currentUserId\)/.test(create), '首次添
 
 check(customerIndex.includes('v-if="isCooperationCustomer(row)"'), '客户列表仅为合作企业显示阶段标识')
 check(customerIndex.includes("return row.cooperation_stage || '初筛'"), '合作企业列表阶段标识兼容初筛默认值')
+check(customerIndex.includes("'初筛': 'customer-name-cell__stage--screening'"), '初筛标签使用独立橙色样式')
+check(customerIndex.includes("'已核实': 'customer-name-cell__stage--verified'"), '已核实标签使用独立紫色样式')
+check(customerIndex.includes("'有效联系': 'customer-name-cell__stage--effective'"), '有效联系标签使用独立青绿色样式')
 check(customerIndex.includes('请输入客户名称/手机/电话/合作阶段'), '客户列表提示支持按合作阶段检索')
 check(customerIndex.includes('customer-name-cell__stage'), '客户名称旁展示紧凑合作阶段标签')
 

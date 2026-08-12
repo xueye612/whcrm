@@ -31,6 +31,7 @@ check(statsVue.includes('逾期台账'), '辅助指标展示逾期台账')
 check(statsVue.includes('任务转化'), '展示任务转化数量和比例')
 check(statsVue.includes('平均处理时长'), '展示平均处理时长')
 check(statsVue.includes('openCount()'), '未结台账由未完成状态汇总')
+check(statsVue.includes('.lsp-collapse-title { padding-left: 8px;'), '详细统计标题应与下方内容对齐')
 
 // 3. ledger/index.vue 已引入统计面板
 const indexVue = fs.readFileSync(path.join(ROOT, 'src/views/crm/ledger/index.vue'), 'utf8')
@@ -50,6 +51,7 @@ check(!statsMethod.includes('Db::query('), '不再使用 Db::query 手工拼接 
 check(statsMethod.includes('Db::name('), '使用 ThinkPHP Query Builder')
 check(statsMethod.includes('applyDataScopePublic'), '应用台账数据权限')
 check(statsMethod.includes('SUM(CASE WHEN'), '使用条件聚合减少查询次数')
+check(statsMethod.includes("->where('u.status', 1)"), '按负责人统计不显示已禁用人员')
 check(statsMethod.includes('feedback_time'), '日期筛选使用 feedback_time')
 check(statsMethod.includes('register_time'), '兼容 register_time fallback')
 check(statsMethod.includes('台账统计查询失败'), '有中文异常提示')

@@ -134,7 +134,7 @@ class Task extends ApiCommon
         $status = $param['status'] ?: '';
         if ($status==1) {
             $where['t.status'] = $status;
-        } elseif($status==6) {
+        } elseif($status==5 || $status==6) {
             $where['t.status'] = 5;
         }else{
             $where['t.status'] = [['=', 1], ['=', 5], 'OR'];
@@ -186,7 +186,7 @@ class Task extends ApiCommon
                 ->where($map)
                 ->field('t.task_id,t.create_user_id,t.main_user_id,t.owner_user_id,t.status,t.priority,t.pid,t.start_time,t.stop_time,t.work_id,t.order_id,t.create_time,t.lable_id,t.name')
                 ->page($param['page'], $param['limit'])
-                ->order('t.task_id desc')
+                ->order('CASE WHEN t.status = 5 THEN 1 ELSE 0 END ASC, CASE WHEN t.stop_time = 0 THEN 1 ELSE 0 END ASC, t.stop_time ASC, t.task_id DESC')
                 ->select();
             $dataCount = db('task')
                 ->alias('t')
@@ -196,12 +196,15 @@ class Task extends ApiCommon
                     $query->where($type);
                 })
                 ->count();
+            $completeWhere = $where;
+            $completeWhere['t.status'] = 5;
             $completeCount = db('task')->alias('t')
-                ->where($map)
+                ->where($completeWhere)
                 ->where(function ($query) use ($type) {
                     $query->where($type);
                 })
-                ->where($map)->where(['t.status' => 5, 't.ishidden' => 0, 'priority' => $priority])->count();
+                ->where($map)
+                ->count();
             foreach ($taskList as $k => $v) {
                 $temp = $v ?: [];
                 if ($v['pid']) {
@@ -244,9 +247,11 @@ class Task extends ApiCommon
                 if (in_array($userInfo['id'], $adminIds)) {
                     $type = 't.is_open = 1';
                 } else {
-                    // 普通用户的“全部”应包含所有明确分配给自己的任务。
-                    // 测试任务可能继承私有项目属性，不能再用 is_open=1 把接收人排除。
-                    $type = '(t.main_user_id =' . $userInfo['id'] . ' OR t.owner_user_id like "%,' . $userInfo['id'] . ',%")';
+                    // “全部”同时包含用户作为成员加入的项目任务，新项目加入后无需重新分配即可出现。
+                    $memberWorkIds = Db::name('work_user')->where('user_id', $userInfo['id'])->column('work_id');
+                    $memberWorkIds = array_values(array_filter(array_map('intval', $memberWorkIds)));
+                    $memberWorkSql = $memberWorkIds ? ' OR t.work_id IN (' . implode(',', $memberWorkIds) . ')' : '';
+                    $type = '(t.main_user_id =' . $userInfo['id'] . ' OR t.owner_user_id like "%,' . $userInfo['id'] . ',%"' . $memberWorkSql . ')';
                 }
             }
             $where['t.ishidden'] = 0;
@@ -258,12 +263,16 @@ class Task extends ApiCommon
                 ->where($type)
                 ->where($map)
                 ->page($param['page'], $param['limit'])
-                ->order('t.task_id desc')
+                ->order('CASE WHEN t.status = 5 THEN 1 ELSE 0 END ASC, CASE WHEN t.stop_time = 0 THEN 1 ELSE 0 END ASC, t.stop_time ASC, t.task_id DESC')
                 ->select();
             $dataCount = db('task')->alias('t')->where($where)->where($type)->where($map)->count();
+            $completeWhere = $where;
+            $completeWhere['t.status'] = 5;
             $completeCount = db('task')->alias('t')
+                ->where($completeWhere)
                 ->where($type)
-                ->where($map)->where(['t.status' => 5, 't.ishidden' => 0, 'priority' => $priority])->count();
+                ->where($map)
+                ->count();
             foreach ($taskList as $key => $value) {
                 $pname = '';
                 if ($value['pid']) {
@@ -323,16 +332,10 @@ class Task extends ApiCommon
         $data['page']['list'] = $taskList ?: [];
         $data['page']['dataCount'] = $dataCount ?: 0;
         $data['page']['completeCount'] = $completeCount ?: 0;
-        if ($param['page'] != 1 && ($param['page'] * $param['limit']) >= $dataCount) {
-            $data['page']['firstPage'] = false;
-            $data['page']['lastPage'] = true;
-        } else if ($param['page'] != 1 && (int)($param['page'] * $param['limit']) < $dataCount) {
-            $data['page']['firstPage'] = false;
-            $data['page']['lastPage'] = false;
-        } else if ($param['page'] == 1) {
-            $data['page']['firstPage'] = true;
-            $data['page']['lastPage'] = false;
-        }
+        $page = max(1, (int)$param['page']);
+        $limit = max(1, (int)$param['limit']);
+        $data['page']['firstPage'] = $page === 1;
+        $data['page']['lastPage'] = ($page * $limit) >= (int)$dataCount;
         return resultArray(['data' => $data]);
     }
     
@@ -488,14 +491,22 @@ class Task extends ApiCommon
         if (!isset($param['priority_id']) || !$param['task_id']) {
             return resultArray(['error' => '参数错误']);
         }
-        if (db('task')->where(['task_id' => $param['task_id']])->setField('priority', $param['priority_id'])) {
-            $taskInfo = db('task')->where(['task_id' => $param['task_id']])->find();
+        $taskInfo = db('task')->where(['task_id' => $param['task_id']])->find();
+        if (!$taskInfo) return resultArray(['error' => '任务不存在']);
+        $priorityId = (int)$param['priority_id'];
+        if (!in_array($priorityId, [0, 1, 2, 3], true)) return resultArray(['error' => '优先级参数错误']);
+        if ((int)$taskInfo['priority'] === $priorityId) return resultArray(['data' => '操作成功']);
+
+        if (db('task')->where(['task_id' => $param['task_id']])->setField('priority', $priorityId)) {
             if (!$taskInfo['pid']) {
                 actionLog($taskInfo['task_id'], $taskInfo['owner_user_id'], $taskInfo['structure_ids'], '修改优先级');
             }
             return resultArray(['data' => '操作成功']);
         } else {
-            return resultArray(['error' => '操作失败']);
+            $currentPriority = db('task')->where(['task_id' => $param['task_id']])->value('priority');
+            return (int)$currentPriority === $priorityId
+                ? resultArray(['data' => '操作成功'])
+                : resultArray(['error' => '操作失败']);
         }
     }
     

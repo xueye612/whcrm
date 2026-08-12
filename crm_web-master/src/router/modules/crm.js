@@ -17,6 +17,7 @@ export default [
     ...layout({
       permissions: ['crm']
     }),
+    hidden: true,
     children: [{
       path: 'workbench', // 仪表盘
       component: () => import('@/views/crm/workbench'),
@@ -123,12 +124,13 @@ export default [
     ...layout({
       permissions: ['ledger', 'ledger', 'index']
     }),
+    hidden: true,
     children: [{
-      path: 'ledger', // 台账
+      path: 'ledger',
       component: () => import('@/views/crm/ledger'),
       meta: {
         title: '台账',
-        icon: 'record'
+        activeMenu: '/project/ledger'
       }
     }]
   },
@@ -220,17 +222,8 @@ export default [
         icon: 'product'
       }
     }]
-  },
+  }
   // ===== P2 原始数据池已合并至正式线索 /crm/leads（不重复维护）=====
   // P3 行业机会已合并至正式商机 /crm/business（不重复维护）=====
-  // P5 奖惩 / P6 绩效 保留
-  {
-    ...layout({ permissions: ['crm', 'reward', 'candidatelist'] }),
-    children: [{ path: 'reward', component: () => import('@/views/crm/reward'), meta: { title: '奖惩', icon: 'money' }}]
-  },
-  {
-    ...layout({ permissions: ['crm', 'performance', 'summarylist'] }),
-    children: [{ path: 'performance', component: () => import('@/views/crm/performance'), meta: { title: '绩效', icon: 'performance' }}]
-  }
 ]
 

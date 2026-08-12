@@ -23,6 +23,7 @@ export function normalizeCompletionFields(form, now) {
 
   next.finish_time = ''
   next.reply_content = ''
+  next.demo_extension_required = null
   return normalizeCloseFields(next)
 }
 

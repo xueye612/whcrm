@@ -1,11 +1,23 @@
 'use strict'
-const fs = require('fs'); const path = require('path'); let count = 0
-function check(c, m) { if (!c) { console.error('FAIL: ' + m); process.exit(1) }; count++ }
+const fs = require('fs')
+const path = require('path')
+let count = 0
+function check(c, m) {
+  if (!c) {
+    console.error('FAIL: ' + m)
+    process.exit(1)
+  }
+  count++
+}
 const ROOT = path.resolve(__dirname, '..')
 const apiFile = path.join(ROOT, 'src/api/work/outsource.js')
 check(fs.existsSync(apiFile), 'outsource.js 应存在')
 const apiSrc = fs.readFileSync(apiFile, 'utf8')
-;['outsourceProjectSaveAPI','outsourceProjectReadAPI','outsourceDistributeSaveAPI'].forEach(fn => check(apiSrc.indexOf(fn) !== -1, 'API 应导出 ' + fn))
+;['outsourceProjectSaveAPI', 'outsourceProjectReadAPI', 'outsourceDistributeSaveAPI'].forEach(fn => check(apiSrc.indexOf(fn) !== -1, 'API 应导出 ' + fn))
+const pageSrc = fs.readFileSync(path.join(ROOT, 'src/views/pm/outsource/index.vue'), 'utf8')
+check(pageSrc.indexOf('workIndexWorkListAPI') !== -1, '外包奖金页面应自动读取有权限的项目列表')
+check(pageSrc.indexOf('placeholder="选择或搜索项目"') !== -1, '项目选择应支持名称或 ID 搜索')
+check(pageSrc.indexOf('@change="onProjectChange"') !== -1, '选中项目后应自动读取项目数据')
 // 毛利/奖金池/分配逻辑
 function computeMargin(rev, cost) { return Math.round((rev - cost) * 100) / 100 }
 function computePools(rev, rp = 2, ep = 3) { return { reward_pool: Math.round(rev * rp) / 100, expense_pool: Math.round(rev * ep) / 100 } }

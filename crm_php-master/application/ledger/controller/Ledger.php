@@ -142,6 +142,14 @@ class Ledger extends ApiCommon
         if (($param['status'] ?? '') === '已完成' && empty($param['finish_time'])) {
             $param['finish_time'] = time();
         }
+        if (($param['status'] ?? '') === '已完成') {
+            if (!array_key_exists('demo_extension_required', $param) || !in_array((int)$param['demo_extension_required'], [0, 1], true)) {
+                return resultArray(['error' => '请选择是否需要扩展到演示版本']);
+            }
+            $param['demo_extension_required'] = (int)$param['demo_extension_required'];
+        } else {
+            $param['demo_extension_required'] = null;
+        }
         if (empty($param['business_id'])) {
             $param['business_id'] = 0;
         }
@@ -276,6 +284,18 @@ class Ledger extends ApiCommon
         if (($param['status'] ?? $oldData['status'] ?? '') === '已完成' && empty($param['finish_time']) && empty($oldData['finish_time'])) {
             $param['finish_time'] = time();
         }
+        $mergedStatus = $param['status'] ?? $oldData['status'] ?? '';
+        if ($mergedStatus === '已完成') {
+            $demoValue = array_key_exists('demo_extension_required', $param)
+                ? $param['demo_extension_required']
+                : ($oldData['demo_extension_required'] ?? null);
+            if ($demoValue === null || $demoValue === '' || !in_array((int)$demoValue, [0, 1], true)) {
+                return resultArray(['error' => '请选择是否需要扩展到演示版本']);
+            }
+            $param['demo_extension_required'] = (int)$demoValue;
+        } elseif (array_key_exists('status', $param)) {
+            $param['demo_extension_required'] = null;
+        }
         if (array_key_exists('feedback_channel', $param) && empty($param['feedback_channel'])) {
             $param['feedback_channel'] = '微信';
         }
@@ -399,7 +419,8 @@ class Ledger extends ApiCommon
             ['field' => 'register_user_name', 'name' => '登记人', 'form_type' => 'text'],
             ['field' => 'handler_user_name', 'name' => '处理人', 'form_type' => 'text'],
             ['field' => 'register_time', 'name' => '登记时间', 'form_type' => 'text'],
-            ['field' => 'finish_time', 'name' => '完成时间', 'form_type' => 'text']
+            ['field' => 'finish_time', 'name' => '完成时间', 'form_type' => 'text'],
+            ['field' => 'demo_extension_text', 'name' => '扩展到演示版本', 'form_type' => 'text']
         ];
 
         $excelModel = new \app\admin\model\Excel();
@@ -419,6 +440,10 @@ class Ledger extends ApiCommon
                 $item['description_plain'] = $this->normalizeTaskDescription($item['description'] ?? '');
                 $item['completed_reply_plain'] = $this->normalizeTaskDescription($item['completed_reply'] ?? '');
                 $item['closed_reason_plain'] = $this->normalizeTaskDescription($item['closed_reason'] ?? '');
+                $demoExtensionValue = $item['demo_extension_required'] ?? null;
+                $item['demo_extension_text'] = ($demoExtensionValue === null || $demoExtensionValue === '')
+                    ? '历史数据未选择'
+                    : (((int)$demoExtensionValue === 1) ? '需要' : '不需要');
             }
             $data['list'] = $list;
             return $data;
@@ -624,7 +649,7 @@ class Ledger extends ApiCommon
         }
         $title = trim((string)($param['title'] ?? ''));
         $taskName = $title !== '' ? $title : '项目增项开发';
-        $description = $this->normalizeTaskDescription($param['description'] ?? '');
+        $description = $this->sanitizeRichText($param['description'] ?? '');
         $priority = $this->resolveAutoTaskPriority($category);
         $startTime = $this->resolveTaskStartTime($param['register_time'] ?? 0);
         $mainUserId = (int)($param['handler_user_id'] ?? ($userInfo['id'] ?? 0));
@@ -788,7 +813,7 @@ class Ledger extends ApiCommon
             }
         }
         if (array_key_exists('description', $changedParam)) {
-            $description = $this->normalizeTaskDescription($mergedData['description'] ?? '');
+            $description = $this->sanitizeRichText($mergedData['description'] ?? '');
             if ($description !== '' && $description !== (string)($task['description'] ?? '')) {
                 $updateData['description'] = $description;
             }
@@ -1019,20 +1044,30 @@ class Ledger extends ApiCommon
         $classId = (int)($param['class_id'] ?? 0);
         $mainUserId = (int)($param['main_user_id'] ?? 0);
         $stopTime = (string)($param['stop_time'] ?? '');
+
+        $ledger = Db::name('customer_ledger')->where(['ledger_id' => $ledgerId])->find();
+        if (!$ledger) return resultArray(['error' => '台账不存在']);
+
+        // 台账转任务默认进入“增项开发”项目，负责人沿用台账处理人。
+        if ($workId <= 0) {
+            $workId = (int)Db::name('work')->where(['name' => '增项开发', 'status' => 1])->value('work_id');
+        }
+        if ($classId <= 0 && $workId > 0) {
+            $classId = (int)Db::name('work_task_class')->where(['work_id' => $workId])->order('class_id asc')->value('class_id');
+        }
+        if ($mainUserId <= 0) {
+            $mainUserId = (int)($ledger['handler_user_id'] ?? 0);
+        }
         if ($reason === '' || $workId <= 0 || $classId <= 0 || $mainUserId <= 0 || $stopTime === '') {
             return resultArray(['error' => '请填写完整信息：转换原因、项目、任务分类、负责人、截止时间']);
         }
 
+        $activeMainUser = Db::name('admin_user')->where(['id' => $mainUserId, 'status' => 1, 'type' => 1])->find();
+        if (!$activeMainUser) return resultArray(['error' => '负责人已禁用或不可用，请重新选择']);
+
         // 校验任务分类属于所选项目
         $classExists = Db::name('work_task_class')->where(['class_id' => $classId, 'work_id' => $workId])->find();
         if (!$classExists) return resultArray(['error' => '任务分类不属于所选项目']);
-
-        // 校验负责人属于所选项目成员
-        $isMember = Db::name('work_user')->where(['work_id' => $workId, 'user_id' => $mainUserId])->find();
-        if (!$isMember) return resultArray(['error' => '负责人必须是所选项目的成员']);
-
-        $ledger = Db::name('customer_ledger')->where(['ledger_id' => $ledgerId])->find();
-        if (!$ledger) return resultArray(['error' => '台账不存在']);
 
         // 幂等：已有 task_id 不重复转换
         if ((int)($ledger['task_id'] ?? 0) > 0) {
@@ -1049,9 +1084,12 @@ class Ledger extends ApiCommon
             }
 
             $now = time();
+            $taskDescription = $this->sanitizeRichText($ledger['description'] ?? '');
+            $reasonHtml = '<p><strong>转换原因：</strong>' . htmlspecialchars($reason, ENT_QUOTES, 'UTF-8') . '</p>';
+            $taskDescription = $taskDescription !== '' ? $taskDescription . $reasonHtml : $reasonHtml;
             $taskParam = [
                 'name' => mb_substr('台账转任务：' . $ledger['title'], 0, 100),
-                'description' => '来源台账ID：' . $ledgerId . "\n转换原因：" . $reason,
+                'description' => $taskDescription,
                 'work_id' => $workId,
                 'class_id' => $classId,
                 'main_user_id' => $mainUserId,
@@ -1342,6 +1380,7 @@ class Ledger extends ApiCommon
                 $handlerQuery->where($dateCondition);
             }
             $byHandler = $handlerQuery->where('l.handler_user_id', '>', 0)
+                ->where('u.status', 1)
                 ->field('u.realname as handler_name, COUNT(*) as cnt')
                 ->group('l.handler_user_id, u.realname')
                 ->order('cnt desc')

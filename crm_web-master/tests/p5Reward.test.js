@@ -77,6 +77,8 @@ check(rewardVue.includes('保存配置'), 'reward page has visible save config b
 
 // Stats and pagination
 check(rewardVue.includes('rp-stats'), 'reward page has statistics cards')
+check(rewardVue.includes('.reward-inner { width: 100%; }'), 'reward page should use available width instead of leaving large side margins')
+check(rewardVue.includes('.rp-tab-body { display: flex; flex-direction: column; gap: 16px; }'), 'reward page sections should use compact vertical spacing')
 check(rewardVue.includes('rp-pager'), 'reward page has pagination')
 
 // === Manual rules use rewardManualRuleSaveAPI; stage rules legitimately use rewardRuleSaveAPI ===

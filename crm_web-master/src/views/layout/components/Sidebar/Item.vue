@@ -61,7 +61,15 @@ export default {
 }
 
 .wk {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
   margin-right: 8px;
+  font-size: 16px;
+  line-height: 1;
+  vertical-align: middle;
 }
 
 .side-bar-label {

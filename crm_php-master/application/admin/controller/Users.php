@@ -323,10 +323,11 @@ class Users extends ApiCommon
                 $where['user.id'] = ['in', $belowIds];
             }
         }
+        $statusWhere = !empty($param['active_only']) ? 'user.status=1' : 'user.status>0';
         $userList = db('admin_user')
             ->alias('user')
             ->where($where)
-            ->where('user.status>0 and user.type=1')
+            ->where($statusWhere . ' and user.type=1')
             ->join('__ADMIN_STRUCTURE__ structure', 'structure.id = user.structure_id', 'LEFT')
             ->field('user.id,user.realname,user.thumb_img,structure.name as s_name')
             ->select();

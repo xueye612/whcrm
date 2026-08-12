@@ -266,7 +266,7 @@ export default {
       loading: true,
       filterObj: {},
       filterValue: {
-        sort: 2,
+        sort: 3,
         completed_task: true
       },
       filterList: [{

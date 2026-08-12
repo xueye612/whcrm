@@ -2,7 +2,7 @@
   <el-container>
     <el-header class="nav-container">
       <navbar
-        nav-index="/project"
+        nav-index="/project/workbench"
         @nav-items-click="navClick"/>
     </el-header>
     <el-container>

@@ -3,8 +3,22 @@
     <div class="os-toolbar">
       <el-button size="small" icon="el-icon-back" @click="$router.back()">返回</el-button>
       <span>项目实施 / 外包奖金</span>
-      <el-input v-model="workId" size="small" placeholder="项目ID" style="width:120px" @keyup.enter.native="loadAll"/>
-      <el-button type="primary" size="small" @click="loadAll">读取</el-button>
+      <el-select
+        v-model="workId"
+        :loading="projectLoading"
+        filterable
+        clearable
+        size="small"
+        placeholder="选择或搜索项目"
+        class="os-project-select"
+        @change="onProjectChange">
+        <el-option
+          v-for="project in projectOptions"
+          :key="project.work_id"
+          :label="project.name + '（ID: ' + project.work_id + '）'"
+          :value="String(project.work_id)"/>
+      </el-select>
+      <el-button :disabled="!workId" type="primary" size="small" @click="loadAll">读取</el-button>
     </div>
 
     <!-- 档案 -->
@@ -65,18 +79,21 @@
       </el-table>
     </div>
 
-    <div v-if="!profile && workId" class="os-empty">输入项目 ID 后点击「读取」查看档案与奖金分配</div>
+    <div v-if="!profile" class="os-empty">{{ workId ? '正在读取项目档案与奖金分配' : '请选择项目查看档案与奖金分配' }}</div>
   </div>
 </template>
 
 <script>
 import { outsourceDictionaryAPI, outsourceProjectSaveAPI, outsourceProjectReadAPI, outsourceDistributeSaveAPI, outsourceDistributeReadAPI } from '@/api/work/outsource'
+import { workIndexWorkListAPI } from '@/api/pm/task'
 
 export default {
   name: 'OutsourcePage',
   data() {
     return {
       workId: '',
+      projectOptions: [],
+      projectLoading: false,
       profile: null,
       dict: { delivery_levels: [], default_distribution: [] },
       form: {},
@@ -97,6 +114,7 @@ export default {
     }
   },
   async created() {
+    await this.fetchProjectOptions()
     try {
       const r = await outsourceDictionaryAPI({})
       this.dict = r.data || r
@@ -110,6 +128,23 @@ export default {
     }
   },
   methods: {
+    async fetchProjectOptions() {
+      this.projectLoading = true
+      try {
+        const r = await workIndexWorkListAPI({ sort_type: 4 })
+        this.projectOptions = (r.data || []).filter(project => project && project.work_id)
+      } catch (e) {
+        this.projectOptions = []
+      } finally {
+        this.projectLoading = false
+      }
+    },
+    onProjectChange() {
+      this.profile = null
+      this.distResult = null
+      this.savedRows = []
+      if (this.workId) this.loadAll()
+    },
     async loadAll() {
       if (!this.workId) return
       await this.fetchProfile()
@@ -173,6 +208,7 @@ export default {
 <style scoped>
 .os-page { padding: 16px; max-width: 900px; }
 .os-toolbar { display: flex; gap: 8px; align-items: center; margin-bottom: 12px; }
+.os-project-select { width: 300px; }
 .os-form { margin-top: 8px; }
 .os-hint { color: #909399; font-size: 12px; margin-left: 8px; }
 .os-section { margin-top: 16px; padding: 12px; background: #f7f8fa; border-radius: 6px; }

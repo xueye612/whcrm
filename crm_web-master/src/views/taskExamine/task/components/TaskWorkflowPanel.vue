@@ -290,7 +290,9 @@
       custom-class="wp-test-submit-dialog">
       <el-form ref="testSubmitFormRef" :model="testSubmitForm" :rules="testSubmitRules" label-width="90px" size="small">
         <el-form-item label="测试内容">
-          <div class="wp-readonly-box">{{ testData && testData.test_scope || '-' }}</div>
+          <div
+            class="wp-readonly-box"
+            v-html="safeHtml(testData && testData.test_scope || '-')" />
         </el-form-item>
         <el-form-item label="测试结果" prop="result">
           <el-radio-group v-model="testSubmitForm.result">

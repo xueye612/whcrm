@@ -78,7 +78,13 @@ class Record extends ApiCommon
             }
             $updateData['status'] = $newStatus;
             if ($newStatus === '已完成') {
+                if (!array_key_exists('demo_extension_required', $param) || !in_array((int)$param['demo_extension_required'], [0, 1], true)) {
+                    return resultArray(['error' => '请选择是否需要扩展到演示版本']);
+                }
                 $updateData['finish_time'] = time();
+                $updateData['demo_extension_required'] = (int)$param['demo_extension_required'];
+            } elseif ($newStatus !== $oldStatus) {
+                $updateData['demo_extension_required'] = null;
             }
         }
         if (!empty($updateData)) {

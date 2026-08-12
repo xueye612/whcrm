@@ -2,7 +2,7 @@
   <el-container>
     <el-header class="nav-container">
       <navbar
-        nav-index="/taskExamine"
+        nav-index="/taskExamine/examine-index/my"
         @nav-items-click="navClick"/>
     </el-header>
     <el-container>

@@ -96,6 +96,12 @@
             <el-option v-for="item in statusOptions" :key="item" :label="item" :value="item" />
           </el-select>
         </el-form-item>
+        <el-form-item v-if="form.status === '已完成'" label="扩展到演示版本" prop="demo_extension_required">
+          <el-radio-group v-model="form.demo_extension_required">
+            <el-radio :label="1">需要</el-radio>
+            <el-radio :label="0">不需要</el-radio>
+          </el-radio-group>
+        </el-form-item>
       </el-form>
     </div>
 
@@ -146,13 +152,18 @@ export default {
         feedback_channel: '微信',
         category: DEFAULT_LEDGER_CATEGORY,
         status: '待处理',
+        demo_extension_required: null,
         handler_user_id: '',
         register_user_id: ''
       },
       rules: {
         contract_id: [{ required: true, message: '请选择合同', trigger: 'change' }],
         title: [{ required: true, message: '请填写问题标题', trigger: 'blur' }],
-        description: [{ required: true, message: '请填写问题内容', trigger: 'blur' }]
+        description: [{ required: true, message: '请填写问题内容', trigger: 'blur' }],
+        demo_extension_required: [{ validator: (rule, value, callback) => {
+          if (this.form.status === '已完成' && ![0, 1].includes(value)) return callback(new Error('请选择是否需要扩展到演示版本'))
+          callback()
+        }, trigger: 'change' }]
       },
       contractSearchTimer: null
     }
@@ -204,6 +215,7 @@ export default {
         feedback_channel: '微信',
         category: DEFAULT_LEDGER_CATEGORY,
         status: '待处理',
+        demo_extension_required: null,
         handler_user_id: userId || '',
         register_user_id: userId || '',
         customer_id: ''
@@ -363,6 +375,7 @@ export default {
         feedback_channel: this.form.feedback_channel,
         category: this.form.category,
         status: this.form.status || '待处理',
+        demo_extension_required: this.form.demo_extension_required,
         handler_user_id: this.form.handler_user_id || userId,
         register_user_id: this.form.register_user_id || userId
       }, () => this.formatNow())

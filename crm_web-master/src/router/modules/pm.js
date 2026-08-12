@@ -19,8 +19,19 @@ export default [
       path: 'workbench', // 工作台
       component: () => import('@/views/pm/task/index'),
       meta: {
-        title: '工作台',
+        title: '我的任务',
         icon: 'workbench'
+      }
+    }]
+  },
+  {
+    ...layout('/project', { permissions: ['ledger', 'ledger', 'index'] }),
+    children: [{
+      path: 'ledger',
+      component: () => import('@/views/crm/ledger'),
+      meta: {
+        title: '台账',
+        icon: 'record'
       }
     }]
   },
@@ -37,7 +48,7 @@ export default [
     }/** , {
       path: 'index', // 展示用
       meta: {
-        title: '项目',
+        title: '项目列表',
         icon: 'project',
         disabled: true // 禁止next
       }
@@ -72,7 +83,7 @@ export default [
       path: 'statistics', // 统计分析
       component: () => import('@/views/pm/statistics/index'),
       meta: {
-        title: '统计分析',
+        title: '任务统计',
         icon: 'results-solid'
       }
     }]
@@ -90,6 +101,7 @@ export default [
   },
   {
     ...layout('/tag-list'),
+    hidden: true,
     children: [{
       name: 'tag-list',
       path: 'tag/:id', // 项目
@@ -124,7 +136,25 @@ export default [
     children: [{
       path: 'outsource',
       component: () => import('@/views/pm/outsource'),
-      meta: { title: '外包项目', icon: 'project' }
+      meta: { title: '外包项目', icon: 'contract' }
+    }]
+  },
+  // 奖惩和绩效属于项目交付后的管理闭环，入口统一放在“项目与任务”。
+  // 接口权限仍沿用原 CRM 权限点，避免扩大可见范围。
+  {
+    ...layout('/project', { permissions: ['crm', 'reward', 'candidatelist'] }),
+    children: [{
+      path: 'reward',
+      component: () => import('@/views/crm/reward'),
+      meta: { title: '奖惩', icon: 'money' }
+    }]
+  },
+  {
+    ...layout('/project', { permissions: ['crm', 'performance', 'summarylist'] }),
+    children: [{
+      path: 'performance',
+      component: () => import('@/views/crm/performance'),
+      meta: { title: '绩效', icon: 'business-intelligence' }
     }]
   }
 ]

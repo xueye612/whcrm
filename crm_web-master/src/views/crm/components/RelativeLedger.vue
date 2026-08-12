@@ -40,6 +40,12 @@
           </el-tag>
         </template>
       </el-table-column>
+      <el-table-column label="任务转换" width="130" align="center">
+        <template slot-scope="scope">
+          <el-tag v-if="scope.row.task_id" type="success" size="mini">已转任务 #{{ scope.row.task_id }}</el-tag>
+          <el-tag v-else type="info" size="mini">未转任务</el-tag>
+        </template>
+      </el-table-column>
       <el-table-column prop="handler_user_name" label="处理人" width="120" />
       <el-table-column label="反馈时间" width="170" show-overflow-tooltip>
         <template slot-scope="scope">{{ formatDateTime(scope.row.feedback_time || scope.row.register_time) || '—' }}</template>
@@ -214,6 +220,14 @@
                 <el-input v-model.trim="form.reply_content" :rows="3" type="textarea" placeholder="填写问题原因和处理结果" />
               </el-form-item>
             </el-col>
+            <el-col v-if="isFormCompleted" :xs="24" :sm="24">
+              <el-form-item label="扩展到演示版本" prop="demo_extension_required">
+                <el-radio-group v-model="form.demo_extension_required">
+                  <el-radio :label="1">需要</el-radio>
+                  <el-radio :label="0">不需要</el-radio>
+                </el-radio-group>
+              </el-form-item>
+            </el-col>
             <el-col v-if="isFormClosed" :xs="24" :sm="24">
               <el-form-item label="关闭原因" prop="close_reason" class="form-item-full">
                 <el-input v-model.trim="form.close_reason" :rows="3" type="textarea" placeholder="说明关闭原因，如重复反馈、无效问题、客户放弃等" />
@@ -285,6 +299,10 @@
                   </el-tag>
                 </div>
               </div>
+              <div v-if="ledgerDetail.status === '已完成'" class="kv-item">
+                <div class="kv-label">扩展到演示版本</div>
+                <div class="kv-value">{{ demoExtensionText(ledgerDetail.demo_extension_required) }}</div>
+              </div>
               <div class="kv-item">
                 <div class="kv-label">登记人</div>
                 <div class="kv-value">{{ ledgerDetail.register_user_name || '—' }}</div>
@@ -334,6 +352,13 @@
               <el-option v-for="item in statusOptions" :key="item" :label="item" :value="item" />
             </el-select>
             <el-button type="primary" @click="addRecord">提交记录</el-button>
+          </div>
+          <div v-if="recordForm.new_status === '已完成'" class="record-actions">
+            <span>扩展到演示版本</span>
+            <el-radio-group v-model="recordForm.demo_extension_required">
+              <el-radio :label="1">需要</el-radio>
+              <el-radio :label="0">不需要</el-radio>
+            </el-radio-group>
           </div>
         </section>
       </div>
@@ -415,7 +440,11 @@ export default {
         title: [{ required: true, message: '请填写反馈问题', trigger: 'blur' }],
         register_user_id: [{ validator: (rule, value, callback) => this.validateUserSelect(value, '请选择登记人', callback), trigger: 'change' }],
         handler_user_id: [{ validator: (rule, value, callback) => this.validateUserSelect(value, '请选择处理人', callback), trigger: 'change' }],
-        close_reason: [{ validator: (rule, value, callback) => this.validateCloseReason(value, callback), trigger: 'blur' }]
+        close_reason: [{ validator: (rule, value, callback) => this.validateCloseReason(value, callback), trigger: 'blur' }],
+        demo_extension_required: [{ validator: (rule, value, callback) => {
+          if (this.isFormCompleted && ![0, 1].includes(value)) return callback(new Error('请选择是否需要扩展到演示版本'))
+          callback()
+        }, trigger: 'change' }]
       },
       detailVisible: false,
       ledgerDetail: {},
@@ -429,7 +458,8 @@ export default {
       recordList: [],
       recordForm: {
         content: '',
-        new_status: ''
+        new_status: '',
+        demo_extension_required: null
       }
     }
   },
@@ -529,6 +559,12 @@ export default {
     window.removeEventListener('resize', this.updateTableHeight)
   },
   methods: {
+    demoExtensionText(value) {
+      if (value === null || value === '' || value === undefined) return '历史数据未选择'
+      if (Number(value) === 1) return '需要'
+      if (Number(value) === 0) return '不需要'
+      return '历史数据未选择'
+    },
     updateTableHeight() {
       const container = this.$el
       if (!container) return
@@ -692,6 +728,7 @@ export default {
         register_user_id: this.getCurrentUserSelection(),
         handler_user_id: this.getCurrentUserSelection(),
         reply_content: '',
+        demo_extension_required: null,
         close_reason: ''
       }
       this.form = normalizeCompletionFields(this.form, now)
@@ -729,6 +766,9 @@ export default {
         register_user_id: row.register_user_id ? [{ id: row.register_user_id, realname: row.register_user_name || '' }] : this.getCurrentUserSelection(),
         handler_user_id: row.handler_user_id ? [{ id: row.handler_user_id, realname: row.handler_user_name || '' }] : this.getCurrentUserSelection(),
         reply_content: row.completed_reply || '',
+        demo_extension_required: row.demo_extension_required === null || row.demo_extension_required === '' || row.demo_extension_required === undefined
+          ? null
+          : ([0, 1].includes(Number(row.demo_extension_required)) ? Number(row.demo_extension_required) : null),
         close_reason: row.closed_reason || ''
       }
       this.form = normalizeCompletionFields(this.form, () => this.getNowTime())
@@ -883,6 +923,7 @@ export default {
         payload.finish_time = normalized.finish_time
         payload.reply_content = normalized.reply_content
         payload.close_reason = normalized.close_reason
+        payload.demo_extension_required = this.isFormCompleted ? normalized.demo_extension_required : null
         delete payload.remark
         if (!payload.id) {
           await this.warnExpiredContractOnCreate(payload)
@@ -945,13 +986,18 @@ export default {
         this.$message.error(this.recordForm.new_status === '已关闭' ? '请填写关闭原因' : '请填写处理说明')
         return
       }
+      if (this.recordForm.new_status === '已完成' && ![0, 1].includes(this.recordForm.demo_extension_required)) {
+        this.$message.error('请选择是否需要扩展到演示版本')
+        return
+      }
       const params = {
         ledger_id: this.ledgerDetail.ledger_id,
         content: this.recordForm.content,
-        new_status: this.recordForm.new_status
+        new_status: this.recordForm.new_status,
+        demo_extension_required: this.recordForm.new_status === '已完成' ? this.recordForm.demo_extension_required : null
       }
       ledgerRecordAddAPI(params).then(() => {
-        this.recordForm = { content: '', new_status: '' }
+        this.recordForm = { content: '', new_status: '', demo_extension_required: null }
         this.loadRecords(this.ledgerDetail.ledger_id)
         this.getList()
       })

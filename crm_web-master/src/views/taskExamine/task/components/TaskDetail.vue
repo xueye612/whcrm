@@ -1054,6 +1054,10 @@ export default {
      * 紧急按钮
      */
     priorityBtn(value, def) {
+      if (Number(value.id) === Number(def)) {
+        this.priorityVisible = false
+        return
+      }
       this.taskData.priority = value.id
       workTaskPrioritySetAPI({
         work_id: this.workId,

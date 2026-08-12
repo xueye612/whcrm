@@ -370,6 +370,9 @@ class Task extends ApiCommon
         // 只看我负责的 / 只看我参与的
         $onlyMine = !empty($param['only_mine']) ? 1 : 0;
         $onlyParticipate = !empty($param['only_participate']) ? 1 : 0;
+        $memberWorkIds = Db::name('work_user')->where('user_id', $userId)->column('work_id');
+        $memberWorkIds = array_values(array_filter(array_map('intval', $memberWorkIds)));
+        $memberWorkSql = $memberWorkIds ? ' or task.work_id in (' . implode(',', $memberWorkIds) . ')' : '';
 
         $data = [];
         $data[0]['title'] = '收件箱';
@@ -386,7 +389,7 @@ class Task extends ApiCommon
             } elseif ($onlyParticipate) {
                 $where['whereStr'] = ' ( task.create_user_id =' . $userId . ' or ( task.owner_user_id like "%,' . $userId . ',%") or ( task.main_user_id = ' . $userId . ' ) )';
             } else {
-                $where['whereStr'] = ' ( task.create_user_id =' . $userId . ' or ( task.owner_user_id like "%,' . $userId . ',%") or ( task.main_user_id = ' . $userId . ' ) )';
+                $where['whereStr'] = ' ( task.create_user_id =' . $userId . ' or ( task.owner_user_id like "%,' . $userId . ',%") or ( task.main_user_id = ' . $userId . ' )' . $memberWorkSql . ' )';
             }
             if (!empty($param['search'])) $where['taskSearch'] = '(task.name like "%' . $param['search'] . '%" OR task.description like "%' . $param['search'] . '%")';
             // 传入 W/R/K 和状态筛选
@@ -609,18 +612,28 @@ class Task extends ApiCommon
             return resultArray(['error' => '参数错误']);
         }
         $dataInfo=Db::name('Task')->where(['task_id' => $param['task_id']])->find();
+        if (!$dataInfo) return resultArray(['error' => '任务不存在']);
+        $priorityId = (int)$param['priority_id'];
+        if (!in_array($priorityId, [0, 1, 2, 3], true)) return resultArray(['error' => '优先级参数错误']);
         # 权限判断
         if (!empty($param['work_id']) && !$this->checkWorkOperationAuth('setTaskPriority', $param['work_id'], $this->userInfo['id'])) {
             header('Content-Type:application/json; charset=utf-8');
             exit(json_encode(['code' => 102, 'error' => '无权操作！']));
         }
+        // MySQL 对相同值更新返回 0；这是幂等成功，不应提示操作失败或重复写日志。
+        if ((int)$dataInfo['priority'] === $priorityId) {
+            return resultArray(['data' => '操作成功']);
+        }
         $priority=[0=>'无',1=>'低',2=>'中',3=>'高'];
-        $flag = Db::name('Task')->where(['task_id' => $param['task_id']])->setField('priority', $param['priority_id']);
+        $flag = Db::name('Task')->where(['task_id' => $param['task_id']])->setField('priority', $priorityId);
         if ($flag) {
-            RecordActionLog($userInfo['id'], 'work_task', 'update',$dataInfo['name'], '','','修改任务优先级为：'.$priority[$param['priority_id']]);
+            RecordActionLog($userInfo['id'], 'work_task', 'update',$dataInfo['name'], '','','修改任务优先级为：'.$priority[$priorityId]);
             return resultArray(['data' => '操作成功']);
         } else {
-            return resultArray(['error' => '操作失败']);
+            $currentPriority = Db::name('Task')->where(['task_id' => $param['task_id']])->value('priority');
+            return (int)$currentPriority === $priorityId
+                ? resultArray(['data' => '操作成功'])
+                : resultArray(['error' => '操作失败']);
         }
     }
     

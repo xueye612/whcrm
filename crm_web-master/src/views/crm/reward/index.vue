@@ -1568,20 +1568,20 @@ export default {
 
 <style scoped>
 /* ===== 页面骨架 ===== */
-.reward-page { background: #f4f6f9; min-height: 100%; padding: 24px; }
-.reward-inner { max-width: 1440px; margin: 0 auto; }
+.reward-page { box-sizing: border-box; background: #f4f6f9; min-height: 100%; padding: 16px 20px; }
+.reward-inner { width: 100%; }
 
 /* 页面标题 */
-.rp-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+.rp-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
 .rp-header-title { font-size: 20px; font-weight: 700; color: #1f2329; line-height: 1.3; }
 .rp-header-sub { font-size: 14px; color: #8a909c; margin-top: 4px; }
 
 /* Tab 导航 */
-.rp-tabs { display: flex; gap: 8px; border-bottom: 1px solid #e4e7ed; margin-bottom: 24px; }
-.rp-tab { padding: 10px 20px; font-size: 15px; color: #8a909c; cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; transition: all 0.2s; }
+.rp-tabs { display: flex; gap: 8px; border-bottom: 1px solid #e4e7ed; margin-bottom: 16px; }
+.rp-tab { padding: 8px 18px; font-size: 15px; color: #8a909c; cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; transition: all 0.2s; }
 .rp-tab:hover { color: #409EFF; }
 .rp-tab-active { color: #409EFF; border-bottom-color: #409EFF; font-weight: 600; }
-.rp-tab-body { display: flex; flex-direction: column; gap: 24px; }
+.rp-tab-body { display: flex; flex-direction: column; gap: 16px; }
 
 /* 模块/卡片标题 */
 .rp-section-title { font-size: 16px; font-weight: 600; color: #1f2329; }
@@ -1589,16 +1589,16 @@ export default {
 .rp-card-title-sub { font-size: 13px; color: #8a909c; font-weight: 400; }
 
 /* 通用卡片 */
-.rp-card { background: #fff; border: 1px solid #eceef3; border-radius: 10px; padding: 20px; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.02); }
+.rp-card { background: #fff; border: 1px solid #eceef3; border-radius: 10px; padding: 16px; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.02); }
 
 /* ===== 统计卡片 ===== */
-.rp-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; }
-.rp-stat-card { display: flex; align-items: center; gap: 14px; padding: 20px; background: #fff; border: 1px solid #eceef3; border-radius: 10px; cursor: pointer; transition: all 0.2s; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.02); }
+.rp-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
+.rp-stat-card { display: flex; align-items: center; gap: 12px; padding: 16px; background: #fff; border: 1px solid #eceef3; border-radius: 10px; cursor: pointer; transition: all 0.2s; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.02); }
 .rp-stat-card:hover { border-color: #d3d8e0; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06); }
-.rp-stat-icon { width: 44px; height: 44px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 22px; flex-shrink: 0; }
+.rp-stat-icon { width: 40px; height: 40px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 20px; flex-shrink: 0; }
 .rp-stat-icon i { font-size: 22px; }
 .rp-stat-main { min-width: 0; }
-.rp-stat-num { font-size: 26px; font-weight: 700; line-height: 1.2; color: #1f2329; font-variant-numeric: tabular-nums; }
+.rp-stat-num { font-size: 24px; font-weight: 700; line-height: 1.2; color: #1f2329; font-variant-numeric: tabular-nums; }
 .rp-stat-unit { font-size: 13px; font-weight: 500; color: #8a909c; margin-left: 2px; }
 .rp-stat-label { font-size: 13px; color: #8a909c; margin-top: 4px; }
 .rp-stat-pending .rp-stat-icon { background: #fdf6ec; color: #e6a23c; }
@@ -1607,16 +1607,16 @@ export default {
 .rp-stat-total .rp-stat-icon { background: #ecf2fe; color: #409eff; }
 
 /* ===== 筛选卡片 ===== */
-.rp-filter-card { padding: 20px 20px 4px; }
+.rp-filter-card { padding: 14px 16px 2px; }
 .rp-filter-form { display: flex; flex-wrap: wrap; row-gap: 4px; }
-.rp-filter-form >>> .el-form-item { margin-bottom: 16px; margin-right: 16px; }
+.rp-filter-form >>> .el-form-item { margin-bottom: 12px; margin-right: 12px; }
 .rp-filter-form >>> .el-form-item__label { font-size: 13px; color: #5c6066; }
 .rp-filter-tags { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 12px 0 4px; margin-top: 4px; border-top: 1px dashed #ebeef5; }
 .rp-filter-tags-label { font-size: 13px; color: #8a909c; }
 
 /* ===== 记录列表卡片 ===== */
 .rp-table-card { padding: 0; overflow: hidden; }
-.rp-table-toolbar { display: flex; justify-content: space-between; align-items: center; padding: 16px 20px; border-bottom: 1px solid #f0f2f5; }
+.rp-table-toolbar { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; border-bottom: 1px solid #f0f2f5; }
 .rp-table-title { font-size: 15px; font-weight: 600; color: #1f2329; display: flex; align-items: baseline; gap: 8px; }
 .rp-table-count { font-size: 13px; color: #8a909c; font-weight: 400; }
 .rp-table-actions { display: flex; gap: 8px; }
@@ -1739,7 +1739,7 @@ export default {
 .rp-config-dirty i { margin-right: 4px; }
 
 /* 响应式 */
-@media (max-width: 1366px) {
+@media (max-width: 1100px) {
   .rp-stats { grid-template-columns: repeat(2, 1fr); }
   .rp-stage-wrap { grid-template-columns: 1fr; }
   .rp-ms-pool-grid { grid-template-columns: repeat(2, 1fr); }

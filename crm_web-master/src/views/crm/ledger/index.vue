@@ -69,6 +69,7 @@
         <el-form-item label="处理人">
           <xh-user-cell
             :value="filterHandlerUser"
+            :info-params="{ active_only: 1 }"
             :radio="true"
             class="filter-user-cell"
             placeholder="处理人"
@@ -156,6 +157,12 @@
           <el-tag :type="statusTagType(scope.row.status)" :class="statusTagClass(scope.row.status)" size="mini">{{ scope.row.status }}</el-tag>
         </template>
       </el-table-column>
+      <el-table-column label="任务转换" width="112" align="center">
+        <template slot-scope="scope">
+          <el-tag v-if="scope.row.task_id" type="success" size="mini">已转任务 #{{ scope.row.task_id }}</el-tag>
+          <el-tag v-else type="info" size="mini">未转任务</el-tag>
+        </template>
+      </el-table-column>
       <el-table-column prop="feedback_user" label="反馈人" width="132" />
       <el-table-column prop="register_user_name" label="登记人" width="72" />
       <el-table-column prop="handler_user_name" label="处理人" width="72" />
@@ -169,13 +176,13 @@
           {{ formatListTime(scope.row.status === '已完成' ? scope.row.finish_time : '') }}
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="200" fixed="right">
+      <el-table-column label="操作" width="220" fixed="right">
         <template slot-scope="scope">
           <el-button type="text" @click="openDetail(scope.row)">详情</el-button>
           <el-button v-if="canUpdate" type="text" @click="openEdit(scope.row)">编辑</el-button>
           <el-button v-if="canUpdate && !scope.row.task_id" type="text" @click="openConvertTask(scope.row)">转任务</el-button>
           <el-button v-if="scope.row.task_id" type="text" @click="openTaskLink(scope.row)">查看任务</el-button>
-          <el-button v-if="scope.row.task_id" type="text" @click="goEvaluateWRK(scope.row)">去评估 W/R/K</el-button>
+          <el-button v-if="needsWrkEvaluation(scope.row)" type="text" @click="goEvaluateWRK(scope.row)">去评估 W/R/K</el-button>
           <el-button v-if="canDelete" type="text" @click="handleDelete(scope.row)">删除</el-button>
         </template>
       </el-table-column>
@@ -301,6 +308,7 @@
               <el-form-item label="登记人" prop="register_user_id">
                 <xh-user-cell
                   :value="form.register_user_id"
+                  :info-params="{ active_only: 1 }"
                   :radio="true"
                   placeholder="选择登记人"
                   @value-change="handleRegisterChange" />
@@ -308,6 +316,7 @@
               <el-form-item label="处理人" prop="handler_user_id">
                 <xh-user-cell
                   :value="form.handler_user_id"
+                  :info-params="{ active_only: 1 }"
                   :radio="true"
                   placeholder="选择处理人"
                   @value-change="handleHandlerChange" />
@@ -388,6 +397,13 @@
               </el-form-item>
             </el-col>
           </el-row>
+          <el-form-item label="扩展到演示版本" prop="demo_extension_required" class="form-item-full">
+            <el-radio-group v-model="form.demo_extension_required">
+              <el-radio :label="1">需要</el-radio>
+              <el-radio :label="0">不需要</el-radio>
+            </el-radio-group>
+            <span class="completion-option-tip">仅记录后续扩展需求，不会自动发布到演示环境</span>
+          </el-form-item>
         </div>
 
         <div v-if="isFormClosed" class="ledger-form-section section-closed">
@@ -490,6 +506,10 @@
               <div class="kv-label">回复记录</div>
               <div class="text-value">{{ detailCompletedReply }}</div>
             </div>
+            <div class="detail-completion-reply">
+              <div class="kv-label">扩展到演示版本</div>
+              <div class="text-value">{{ demoExtensionText(detail.demo_extension_required) }}</div>
+            </div>
           </div>
           <div v-if="detail.status === '已关闭' && detailClosedReason" class="detail-closed-card">
             <div class="kv-label">关闭原因</div>
@@ -531,6 +551,14 @@
               <el-option v-for="item in statusOptions" :key="item" :label="item" :value="item" />
             </el-select>
             <el-button :disabled="isRecordLocked" type="primary" @click="addRecord">{{ recordSubmitLabel }}</el-button>
+          </div>
+          <div v-if="recordForm.new_status === '已完成'" class="record-completion-option">
+            <span class="kv-label">扩展到演示版本</span>
+            <el-radio-group v-model="recordForm.demo_extension_required" :disabled="isRecordLocked">
+              <el-radio :label="1">需要</el-radio>
+              <el-radio :label="0">不需要</el-radio>
+            </el-radio-group>
+            <span class="completion-option-tip">仅记录需求，不会自动发布</span>
           </div>
         </section>
       </div>
@@ -682,7 +710,8 @@ export default {
         title: [{ required: true, message: '请填写反馈问题', trigger: 'blur' }],
         register_user_id: [{ validator: (rule, value, callback) => this.validateUserSelect(value, '请选择登记人', callback), trigger: 'change' }],
         handler_user_id: [{ validator: (rule, value, callback) => this.validateUserSelect(value, '请选择处理人', callback), trigger: 'change' }],
-        close_reason: [{ validator: (rule, value, callback) => this.validateCloseReason(value, callback), trigger: 'blur' }]
+        close_reason: [{ validator: (rule, value, callback) => this.validateCloseReason(value, callback), trigger: 'blur' }],
+        demo_extension_required: [{ validator: (rule, value, callback) => this.validateDemoExtension(value, callback), trigger: 'change' }]
       },
       detailVisible: false,
       detail: {},
@@ -698,7 +727,8 @@ export default {
       recordList: [],
       recordForm: {
         content: '',
-        new_status: ''
+        new_status: '',
+        demo_extension_required: null
       }
     }
   },
@@ -833,12 +863,23 @@ export default {
     richHtml(html) {
       return sanitizeHtml(html)
     },
-    openConvertTask(row) {
+    async openConvertTask(row) {
       this.convertRow = row
-      this.convertForm = { work_id: '', class_id: '', main_user_id: '', stop_time: '', reason: '' }
+      this.convertForm = {
+        work_id: '',
+        class_id: '',
+        main_user_id: row.handler_user_id || '',
+        stop_time: '',
+        reason: ''
+      }
       this.classOptions = []
       this.memberOptions = []
-      if (!this.workOptions.length) this.fetchWorkOptions()
+      if (!this.workOptions.length) await this.fetchWorkOptions()
+      const defaultWork = this.workOptions.find(item => String(item.name || '').trim() === '增项开发')
+      if (defaultWork) {
+        this.convertForm.work_id = defaultWork.work_id
+        await this.onProjectChange(defaultWork.work_id, row.handler_user_id)
+      }
       this.convertDialog = true
     },
     openTaskLink(row) {
@@ -853,10 +894,17 @@ export default {
     goEvaluateWRK(row) {
       this.openTaskLink(row)
     },
-    async onProjectChange(workId) {
+    needsWrkEvaluation(row) {
+      return !!(row && row.task_id && row.task_main_status === '待评估')
+    },
+    async onProjectChange(workId, preferredUserId) {
       this.convertForm.class_id = ''
+      const handlerId = preferredUserId || (this.convertRow && this.convertRow.handler_user_id) || ''
       this.convertForm.main_user_id = ''
-      this.fetchClassOptions(workId)
+      await this.fetchClassOptions(workId)
+      if (this.classOptions.length) {
+        this.convertForm.class_id = this.classOptions[0].class_id
+      }
       if (!workId) {
         this.memberOptions = []
         return
@@ -864,6 +912,8 @@ export default {
       try {
         const res = await workWorkOwnerListAPI({ work_id: workId })
         this.memberOptions = res.data || []
+        const handlerMember = this.memberOptions.find(item => Number(item.id) === Number(handlerId))
+        this.convertForm.main_user_id = handlerMember ? handlerMember.id : ''
       } catch (e) {
         this.memberOptions = []
       }
@@ -934,7 +984,7 @@ export default {
     },
     fetchWorkOptions() {
       this.workLoading = true
-      workIndexWorkListAPI()
+      return workIndexWorkListAPI()
         .then(res => {
           this.workOptions = Array.isArray(res.data) ? res.data : []
         })
@@ -949,16 +999,18 @@ export default {
       const id = workId || ''
       if (!id) {
         this.classOptions = []
-        return
+        return Promise.resolve([])
       }
       this.classLoading = true
-      workWorkStatisticAPI({ work_id: id })
+      return workWorkStatisticAPI({ work_id: id })
         .then(res => {
           const data = res.data || {}
           this.classOptions = data.classList || []
+          return this.classOptions
         })
         .catch(() => {
           this.classOptions = []
+          return []
         })
         .finally(() => {
           this.classLoading = false
@@ -1172,7 +1224,7 @@ export default {
       }
       this.detailVisible = true
       this.recordOriginStatus = ''
-      this.recordForm = { content: '', new_status: '' }
+      this.recordForm = { content: '', new_status: '', demo_extension_required: null }
       this.recordList = []
       this.loadRecords(id)
       ledgerReadAPI({ id }).then(res => {
@@ -1415,11 +1467,16 @@ export default {
         this.$message.error(this.recordForm.new_status === '已关闭' ? '请填写关闭原因' : '请填写处理说明')
         return
       }
+      if (this.recordForm.new_status === '已完成' && ![0, 1].includes(this.recordForm.demo_extension_required)) {
+        this.$message.error('请选择是否需要扩展到演示版本')
+        return
+      }
       const params = {
         ledger_id: this.detail.ledger_id,
         content: this.recordForm.content,
         new_status: this.recordForm.new_status || '',
-        sync_task_status: 1
+        sync_task_status: 1,
+        demo_extension_required: this.recordForm.new_status === '已完成' ? this.recordForm.demo_extension_required : null
       }
       const submit = syncTaskStatus => {
         params.sync_task_status = syncTaskStatus
@@ -1437,6 +1494,7 @@ export default {
         if (res === null) return
         this.recordForm.content = ''
         this.recordForm.new_status = ''
+        this.recordForm.demo_extension_required = null
         this.loadRecords(this.detail.ledger_id)
         if (params.new_status) {
           this.detail.status = params.new_status
@@ -1496,7 +1554,7 @@ export default {
     },
     openCreate() {
       this.recordList = []
-      this.recordForm = { content: '', new_status: '' }
+      this.recordForm = { content: '', new_status: '', demo_extension_required: null }
       this.recordOriginStatus = ''
       this.formOriginStatus = ''
       this.formOriginTaskId = 0
@@ -1521,6 +1579,7 @@ export default {
         handler_user_id: this.getCurrentUserSelection(),
         register_user_id: this.getCurrentUserSelection(),
         reply_content: '',
+        demo_extension_required: null,
         close_reason: ''
       }
       this.form = normalizeCompletionFields(draft ? { ...baseForm, ...draft } : baseForm, now)
@@ -1568,6 +1627,9 @@ export default {
         handler_user_id: row.handler_user_id ? [{ id: row.handler_user_id, realname: row.handler_user_name || '' }] : [],
         register_user_id: row.register_user_id ? [{ id: row.register_user_id, realname: row.register_user_name || '' }] : [],
         reply_content: row.completed_reply || '',
+        demo_extension_required: row.demo_extension_required === null || row.demo_extension_required === '' || row.demo_extension_required === undefined
+          ? null
+          : ([0, 1].includes(Number(row.demo_extension_required)) ? Number(row.demo_extension_required) : null),
         close_reason: row.closed_reason || ''
       }
       this.fetchClassOptions(form.work_id)
@@ -1602,7 +1664,7 @@ export default {
         this.fetchClassOptions(this.taskLink.work_id)
         this.detailVisible = true
         this.recordOriginStatus = row.status || ''
-        this.recordForm = { content: '', new_status: '' }
+        this.recordForm = { content: '', new_status: '', demo_extension_required: null }
         this.recordList = []
         this.loadRecords(row.ledger_id)
         ledgerReadAPI({ id: row.ledger_id }).then(res => {
@@ -2003,6 +2065,19 @@ export default {
       }
       callback()
     },
+    validateDemoExtension(value, callback) {
+      if (this.isFormCompleted && ![0, 1].includes(value)) {
+        callback(new Error('请选择是否需要扩展到演示版本'))
+        return
+      }
+      callback()
+    },
+    demoExtensionText(value) {
+      if (value === null || value === '' || value === undefined) return '历史数据未选择'
+      if (Number(value) === 1) return '需要'
+      if (Number(value) === 0) return '不需要'
+      return '历史数据未选择'
+    },
     touchRelationValidation() {
       if (this.$refs.ledgerForm) {
         this.$refs.ledgerForm.validateField('contract_id')
@@ -2047,6 +2122,7 @@ export default {
       payload.finish_time = normalized.finish_time
       payload.reply_content = normalized.reply_content
       payload.close_reason = normalized.close_reason
+      payload.demo_extension_required = this.isFormCompleted ? normalized.demo_extension_required : null
       delete payload.remark
       payload.sync_task_status = 1
       return payload

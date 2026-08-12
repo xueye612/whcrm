@@ -27,7 +27,7 @@ export default [
     }]
   },
   {
-    ...layout(false),
+    ...layout(true),
     ignore: true, // 路由添加时忽略
     children: [{
       path: 'task-index/1',
@@ -38,7 +38,7 @@ export default [
     }]
   },
   {
-    ...layout(false),
+    ...layout(true),
     ignore: true,
     children: [{
       path: 'task-index/2',

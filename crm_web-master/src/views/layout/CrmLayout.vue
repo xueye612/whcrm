@@ -2,7 +2,7 @@
   <el-container>
     <el-header class="nav-container">
       <navbar
-        nav-index="/crm"
+        :nav-index="navbarIndex"
         @nav-items-click="navClick"/>
     </el-header>
     <el-container>
@@ -69,16 +69,12 @@ export default {
 
   computed: {
     ...mapGetters(['crm', 'crmRouters']),
+    navbarIndex() {
+      return this.$route.path === '/crm/workbench' ? '/crm/workbench' : '/crm/customer'
+    },
     // 快捷添加
     quickAddList() {
       var addItems = []
-      if (this.crm.leads && this.crm.leads.save) {
-        addItems.push({
-          icon: 'leads',
-          index: 'leads',
-          label: '线索'
-        })
-      }
       if (this.crm.customer && this.crm.customer.save) {
         addItems.push({
           icon: 'customer',
@@ -120,20 +116,6 @@ export default {
           icon: 'invoice',
           index: 'invoice',
           label: '发票'
-        })
-      }
-      if (this.crm.visit && this.crm.visit.save) {
-        addItems.push({
-          icon: 'house',
-          index: 'visit',
-          label: '回访'
-        })
-      }
-      if (this.crm.product && this.crm.product.save) {
-        addItems.push({
-          icon: 'product',
-          index: 'product',
-          label: '产品'
         })
       }
       return addItems

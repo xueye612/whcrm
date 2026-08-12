@@ -418,7 +418,7 @@ class Work extends Common
                 $list = db('work_user')
                     ->alias('work')
                     ->join('__ADMIN_USER__ user', 'user.id = work.user_id', 'LEFT')
-                    ->where(['work.work_id' => $param['work_id']])
+                    ->where(['work.work_id' => $param['work_id'], 'user.status' => 1, 'user.type' => 1])
                     ->field('work.*,user.username,user.realname,user.thumb_img')
                     ->order('work.types desc,user.id asc')
                     ->select();
@@ -427,7 +427,7 @@ class Work extends Common
 				$list = db('work_user')
 					->alias('work')
 					->join('__ADMIN_USER__ user', 'user.id = work.user_id', 'LEFT')
-					->where(['work.work_id' => $param['work_id']])
+					->where(['work.work_id' => $param['work_id'], 'user.status' => 1, 'user.type' => 1])
 					->field('work.*,user.username,user.realname,user.thumb_img')
 					->order('work.types desc,user.id asc')
 					->select();

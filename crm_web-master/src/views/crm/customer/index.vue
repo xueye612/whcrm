@@ -122,6 +122,7 @@
                 <el-tag
                   v-if="isCooperationCustomer(row)"
                   :type="cooperationStageTagType(row)"
+                  :class="cooperationStageTagClass(row)"
                   class="customer-name-cell__stage"
                   size="mini">
                   {{ cooperationStage(row) }}
@@ -297,6 +298,15 @@ export default {
       return getCooperationStageTagType(this.cooperationStage(row))
     },
 
+    cooperationStageTagClass(row) {
+      const stageClass = {
+        '初筛': 'customer-name-cell__stage--screening',
+        '已核实': 'customer-name-cell__stage--verified',
+        '有效联系': 'customer-name-cell__stage--effective'
+      }
+      return stageClass[this.cooperationStage(row)] || ''
+    },
+
     /**
      * 左侧菜单选择
      */
@@ -394,5 +404,23 @@ export default {
   flex: none;
   margin-left: 8px;
   border-radius: 10px;
+}
+
+.customer-name-cell__stage--screening {
+  border-color: #f3d19e;
+  background-color: #fdf6ec;
+  color: #d98216;
+}
+
+.customer-name-cell__stage--verified {
+  border-color: #c9b8f4;
+  background-color: #f2edff;
+  color: #6f42c1;
+}
+
+.customer-name-cell__stage--effective {
+  border-color: #9edfd5;
+  background-color: #e9f8f5;
+  color: #078676;
 }
 </style>

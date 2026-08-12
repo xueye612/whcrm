@@ -1095,24 +1095,40 @@ class Task extends Common
             }
             if (!empty($labelWhere)) $labelWhere = '(' . rtrim($labelWhere, 'OR ') . ')';
         }
-        $dataCount = db('task')->alias('task')->where($map)->where($whereStr)->where($taskSearch)->where($timeWhere)->where($labelWhere)->count();
         $taskList = [];
-        if ($dataCount) {
-            // W/R/K 筛选：需要关联 task_workflow 表
-            $wrkFilter = !empty($param['_wrk_filter']) ? $param['_wrk_filter'] : [];
-            $statusFilter = !empty($param['_status_filter']) ? $param['_status_filter'] : '';
-            $needWrkJoin = !empty($wrkFilter['init_w']) || !empty($wrkFilter['init_r']) || !empty($wrkFilter['init_k']);
+        // 状态与 W/R/K 必须在统计数量前生效，避免看板数量与实际列表不一致。
+        $wrkFilter = !empty($param['_wrk_filter']) ? $param['_wrk_filter'] : [];
+        $statusFilter = !empty($param['_status_filter']) ? $param['_status_filter'] : '';
+        $needWrkJoin = !empty($wrkFilter['init_w']) || !empty($wrkFilter['init_r']) || !empty($wrkFilter['init_k']);
 
-            // 如果有 W/R/K 筛选，先查出符合条件的 task_id 列表，再在主查询中过滤
-            $wrkTaskIds = null;
-            if ($needWrkJoin) {
-                $wrkQuery = db('task_workflow');
-                if (!empty($wrkFilter['init_w'])) $wrkQuery->where('init_w', $wrkFilter['init_w']);
-                if (!empty($wrkFilter['init_r'])) $wrkQuery->where('init_r', $wrkFilter['init_r']);
-                if (!empty($wrkFilter['init_k'])) $wrkQuery->where('init_k', $wrkFilter['init_k']);
-                $wrkTaskIds = $wrkQuery->column('task_id');
-                if (empty($wrkTaskIds)) $wrkTaskIds = [0]; // 无匹配则返回空
-            }
+        // 如果有 W/R/K 筛选，先查出符合条件的 task_id 列表，再在主查询中过滤。
+        $wrkTaskIds = null;
+        if ($needWrkJoin) {
+            $wrkQuery = db('task_workflow');
+            if (!empty($wrkFilter['init_w'])) $wrkQuery->where('init_w', $wrkFilter['init_w']);
+            if (!empty($wrkFilter['init_r'])) $wrkQuery->where('init_r', $wrkFilter['init_r']);
+            if (!empty($wrkFilter['init_k'])) $wrkQuery->where('init_k', $wrkFilter['init_k']);
+            $wrkTaskIds = $wrkQuery->column('task_id');
+            if (empty($wrkTaskIds)) $wrkTaskIds = [0]; // 无匹配则返回空
+        }
+
+        $countQuery = db('task')->alias('task')
+            ->where($map)
+            ->where($whereStr)
+            ->where($taskSearch)
+            ->where($timeWhere)
+            ->where($labelWhere);
+        if ($statusFilter === 'delayed') {
+            $countQuery->where('task.stop_time', '>', 0)->where('task.stop_time', '<', time())->where('task.status', '<>', 5);
+        } elseif ($statusFilter !== '') {
+            $countQuery->where('task.status', (int)$statusFilter);
+        }
+        if ($wrkTaskIds !== null) {
+            $countQuery->where('task.task_id', 'in', $wrkTaskIds);
+        }
+        $dataCount = $countQuery->count();
+
+        if ($dataCount) {
 
             $query = db('task')
                 ->alias('task')
@@ -1137,7 +1153,9 @@ class Task extends Common
                 $query->where('task.task_id', 'in', $wrkTaskIds);
             }
 
-            $taskList = $query->order($order)->select();
+            // 排序条件包含 CASE 表达式，必须使用原生排序；order() 会把 CASE
+            // 当作字段名转义，最终生成 `CASE` 并导致工作台接口报网络错误。
+            $taskList = $query->orderRaw($order)->select();
             // 批量查询工作流 W/R/K 数据，避免 N+1 查询
             $wfMap = [];
             if ($taskList) {
@@ -1265,21 +1283,23 @@ class Task extends Common
         # 排序字段映射
         $sortFieldArray = [1 => 'top_order_id', 2 => 'create_time', 3 => 'stop_time', 4 => 'update_time', 5 => 'priority'];
 
-        # 已完成任务默认排在最后
-        $completedTask = $param['completed_task'];
-
         # 排序方式：top_order_id按手动拖拽；create_time按最近创建；stop_time按最近截止；update_time按最近更新；priority按最高优先级；
-        $sortField = !empty($param['sort_field']) ? $param['sort_field'] : 'task_id';
+        $sortField = !empty($param['sort_field']) ? (int)$param['sort_field'] : 3;
+        if (!isset($sortFieldArray[$sortField])) $sortField = 3;
 
         # 默认是升序
         $sortValue = 'asc';
 
-        # 除按手动拖拽以外，全部是降序
-        if (in_array($sortField, [2, 3, 4, 5])) $sortValue = 'desc';
+        # 创建时间、更新时间和优先级按降序；截止时间按升序，越早截止越靠前。
+        if (in_array($sortField, [2, 4, 5])) $sortValue = 'desc';
 
-        if (!empty($completedTask) && ($completedTask != 'false' || $completedTask != false)) $result = 'task.status asc, ';
-
-        $result .= 'task.' . $sortFieldArray[$sortField] . ' ' . $sortValue;
+        # 未完成任务始终在前，已完成任务单独排在最后。
+        $result = 'CASE WHEN task.status = 5 THEN 1 ELSE 0 END ASC, ';
+        if ((int)$sortField === 3) {
+            $result .= 'CASE WHEN task.stop_time = 0 THEN 1 ELSE 0 END ASC, task.stop_time ASC';
+        } else {
+            $result .= 'task.' . $sortFieldArray[$sortField] . ' ' . $sortValue;
+        }
 
         return $result;
     }

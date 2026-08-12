@@ -172,11 +172,19 @@ export default {
     allItemsObj() {
       var tempsItems = {}
       if (this.crm) {
+        tempsItems.workbench = {
+          title: '工作台',
+          type: 0,
+          module: 'workbench',
+          path: '/crm/workbench',
+          icon: 'wk wk-workbench',
+          fontSize: '17px'
+        }
         tempsItems.crm = {
-          title: '客户管理',
+          title: '客户经营',
           type: 1,
           module: 'crm',
-          path: '/crm',
+          path: '/crm/customer',
           icon: 'wk wk-customer',
           fontSize: '17px'
         }
@@ -184,10 +192,10 @@ export default {
 
       if (this.oa && this.oa.taskExamine) {
         tempsItems.taskExamine = {
-          title: '任务/审批',
+          title: '审批办公',
           type: 4,
           module: 'taskExamine',
-          path: '/taskExamine',
+          path: '/taskExamine/examine-index/my',
           icon: 'wk wk-office',
           fontSize: '16px'
         }
@@ -217,10 +225,10 @@ export default {
 
       if (this.project) {
         tempsItems.project = {
-          title: '项目管理',
+          title: '项目与任务',
           type: 2,
           module: 'project',
-          path: '/project',
+          path: '/project/workbench',
           icon: 'wk wk-project',
           fontSize: '15px'
         }
@@ -228,7 +236,7 @@ export default {
 
       if (this.bi) {
         tempsItems.bi = {
-          title: '商业智能',
+          title: '数据分析',
           type: 5,
           path: '/bi',
           module: 'bi',
@@ -316,10 +324,13 @@ export default {
     getTopHeaderModule() {
       if (this.headerModule.length) {
         const allList = []
+        if (this.allItemsObj.workbench) {
+          allList.push(this.allItemsObj.workbench)
+        }
         for (let index = 0; index < this.headerModule.length; index++) {
           const key = this.headerModule[index]
           const menu = this.allItemsObj[key]
-          if (menu && allList.length < 8) {
+          if (menu && !allList.some(item => item.module === menu.module) && allList.length < 8) {
             allList.push(menu)
           }
         }
