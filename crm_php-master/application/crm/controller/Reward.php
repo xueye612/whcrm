@@ -325,6 +325,16 @@ class Reward extends ApiCommon
         $countQuery = $this->buildCandidateQuery($param, $scopeUserId);
         $total = $countQuery->count();
 
+        // 统计卡片按当前筛选范围的全部数据计算（不能用当前页，否则翻页/跨月后卡片清零）
+        $stats = [
+            'pending' => $this->buildCandidateQuery($param, $scopeUserId)
+                ->where(['r.status' => RewardService::ST_PENDING])->count(),
+            'approved_amount' => (float)$this->buildCandidateQuery($param, $scopeUserId)
+                ->where(['r.status' => RewardService::ST_APPROVED])->where('r.amount', '>', 0)->sum('r.amount'),
+            'penalty_amount' => (float)$this->buildCandidateQuery($param, $scopeUserId)
+                ->where('r.amount', '<', 0)->sum('r.amount'),
+        ];
+
         // 列表查询（独立 Query 对象，不复用 $q）
         $listQuery = $this->buildCandidateQuery($param, $scopeUserId);
         if ($hasUpdateUserCol) {
@@ -336,7 +346,8 @@ class Reward extends ApiCommon
             ->select();
 
         foreach ($list as &$row) {
-            $row['occurred_date'] = !empty($row['occurred_time']) ? date('Y-m-d', $row['occurred_time']) : '';
+            $row['occurred_date'] = !empty($row['occurred_time']) ? date('Y-m-d', $row['occurred_time'])
+                : (!empty($row['create_time']) ? date('Y-m-d', $row['create_time']) : '');
             $row['direction'] = (float)$row['amount'] < 0 ? '处罚' : '奖励';
             $row['create_time_str'] = !empty($row['create_time']) ? date('Y-m-d H:i:s', $row['create_time']) : '';
             $row['update_time_str'] = !empty($row['update_time']) ? date('Y-m-d H:i:s', $row['update_time']) : '';
@@ -353,7 +364,7 @@ class Reward extends ApiCommon
                 && in_array($row['status'], [RewardService::ST_PENDING, RewardService::ST_REJECTED, RewardService::ST_SPECIAL, RewardService::ST_APPROVED, RewardService::ST_OFFSET], true);
         }
         unset($row);
-        return resultArray(['data' => ['list' => $list, 'dataCount' => $total]]);
+        return resultArray(['data' => ['list' => $list, 'dataCount' => $total, 'stats' => $stats]]);
     }
 
     /**
@@ -391,8 +402,17 @@ class Reward extends ApiCommon
                     ->whereOr('r.reason', 'like', $kw);
             });
         }
-        if (!empty($param['date_start'])) $q->where('r.occurred_time', '>=', strtotime((string)$param['date_start']));
-        if (!empty($param['date_end'])) $q->where('r.occurred_time', '<', strtotime((string)$param['date_end'] . ' +1 day'));
+        // occurred_time=0 的历史行（该列后期才加入，未回填）按 create_time 参与日期筛选，
+        // 否则选择日期范围后这些记录会被过滤掉导致“加时间查不到”。
+        $dateField = 'IF(r.occurred_time > 0, r.occurred_time, r.create_time)';
+        if (!empty($param['date_start'])) {
+            $ts = strtotime((string)$param['date_start']);
+            if ($ts !== false) $q->whereRaw($dateField . ' >= ' . (int)$ts);
+        }
+        if (!empty($param['date_end'])) {
+            $ts = strtotime((string)$param['date_end'] . ' +1 day');
+            if ($ts !== false) $q->whereRaw($dateField . ' < ' . (int)$ts);
+        }
         return $q;
     }
 
@@ -817,7 +837,8 @@ class Reward extends ApiCommon
             ->where(['r.cand_id' => $candId])->find();
         if (!$row) return resultArray(['error' => '候选不存在']);
         if (!$this->candidateVisibleToUser($row, $this->userInfo)) return resultArray(['error' => '无权查看该奖惩候选']);
-        $row['occurred_date'] = !empty($row['occurred_time']) ? date('Y-m-d', $row['occurred_time']) : '';
+        $row['occurred_date'] = !empty($row['occurred_time']) ? date('Y-m-d', $row['occurred_time'])
+            : (!empty($row['create_time']) ? date('Y-m-d', $row['create_time']) : '');
         $row['direction'] = (float)$row['amount'] < 0 ? '处罚' : '奖励';
         return resultArray(['data' => $row]);
     }

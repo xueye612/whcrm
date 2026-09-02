@@ -1085,7 +1085,11 @@ export default {
   },
   methods: {
     defaultForm() {
-      return { manual_rule_id: '', user_id: '', occurred_date: new Date().toISOString().slice(0, 10), reason: '', change_reason: '', cand_id: 0, amount: 0, base_amount: 0 }
+      // 使用本地日期，不能用 toISOString（UTC）：东八区 0-8 点会取到昨天，月初会把默认所属日期写进上个月
+      var t = new Date()
+      var p = function(n) { return ('0' + n).slice(-2) }
+      var today = t.getFullYear() + '-' + p(t.getMonth() + 1) + '-' + p(t.getDate())
+      return { manual_rule_id: '', user_id: '', occurred_date: today, reason: '', change_reason: '', cand_id: 0, amount: 0, base_amount: 0 }
     },
     defaultRuleForm() {
       return { manual_rule_id: 0, rule_name: '', direction: 'reward', amount: 100, calc_mode: 'fixed', amount_min: 0, amount_max: 0, pool_pct: 0, category: '', description: '', is_enabled: true, sort_order: 0 }
@@ -1207,9 +1211,16 @@ export default {
         const d = r.data || {}
         this.list = d.list || []
         this.total = d.dataCount || 0
-        this.stats.pending = this.list.filter(r => r.status === '待审核').length
-        this.stats.approvedAmount = this.list.filter(r => r.status === '已通过' && Number(r.amount) > 0).reduce((s, r) => s + Number(r.amount), 0)
-        this.stats.penaltyAmount = this.list.filter(r => Number(r.amount) < 0).reduce((s, r) => s + Number(r.amount), 0)
+        if (d.stats) {
+          // 后端按当前筛选范围的全部数据统计（跨月/翻页后卡片不会清零）
+          this.stats.pending = Number(d.stats.pending) || 0
+          this.stats.approvedAmount = Number(d.stats.approved_amount) || 0
+          this.stats.penaltyAmount = Number(d.stats.penalty_amount) || 0
+        } else {
+          this.stats.pending = this.list.filter(r => r.status === '待审核').length
+          this.stats.approvedAmount = this.list.filter(r => r.status === '已通过' && Number(r.amount) > 0).reduce((s, r) => s + Number(r.amount), 0)
+          this.stats.penaltyAmount = this.list.filter(r => Number(r.amount) < 0).reduce((s, r) => s + Number(r.amount), 0)
+        }
       } catch (e) {
         this.list = []
       } finally {
