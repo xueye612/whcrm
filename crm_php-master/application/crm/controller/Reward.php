@@ -455,7 +455,9 @@ class Reward extends ApiCommon
         return in_array($userId, $authIds);
     }
 
-    /** 指定奖励管理员账号可查看全部奖惩，其余账号仅查看本人相关数据。 */
+    /** 奖励管理员可查看全部奖惩，其余账号仅查看本人相关数据。
+     *  管理员口径：指定账号(15628812133)、超级管理员、拥有 crm/reward/update 权限的人员
+     *  （与 canManageCandidate 一致：能审核/编辑全部候选的人必须能看到全部候选）。 */
     private function isRewardVisibilityAdmin($userInfo)
     {
         $adminLogin = '15628812133';
@@ -464,8 +466,14 @@ class Reward extends ApiCommon
         }
         $userId = (int)($userInfo['id'] ?? 0);
         if ($userId <= 0) return false;
+        if (isSuperAdministrators($userId)) return true;
         $account = Db::name('admin_user')->where('id', $userId)->field('username,mobile')->find();
-        return $account && ((string)$account['username'] === $adminLogin || (string)$account['mobile'] === $adminLogin);
+        if ($account && ((string)$account['username'] === $adminLogin || (string)$account['mobile'] === $adminLogin)) {
+            return true;
+        }
+        $userModel = new \app\admin\model\User();
+        $authIds = (array)$userModel->getUserByPer('crm', 'reward', 'update');
+        return in_array($userId, $authIds);
     }
 
     /** 判断候选记录是否与当前账号相关。 */
